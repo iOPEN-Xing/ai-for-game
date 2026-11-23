@@ -7,17 +7,29 @@
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy same-origin
+		Strict-Transport-Security "max-age=31536000"
 		-Server
+	}
+
+	@outer not path /static/frame.html
+	header @outer {
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; frame-src 'self'; form-action 'self' https:; base-uri 'none'; frame-ancestors 'none'"
+		X-Frame-Options DENY
+	}
+	@frame path /static/frame.html
+	header @frame {
+		Content-Security-Policy "frame-ancestors 'self'"
+		X-Frame-Options SAMEORIGIN
 	}
 
 	@home {
 		method GET HEAD
 		path /
 	}
-	redir @home /sample?game=harbor 302
+	redir @home /sample?game={$SAMPLE_GAME:harbor} 302
 	@player {
 		method GET HEAD
-		path /sample /play/* /cartridges/v1/* /static/play-host.js /static/api-client.js /static/player-routes.js /static/frame.html /static/player.css /static/sample-game.json /static/sample-harbor.json
+		path /sample /play/* /cartridges/v1/* /static/player-page.js /static/play-host.js /static/api-client.js /static/player-routes.js /static/frame.html /static/player.css /static/sample-game.json /static/sample-harbor.json
 	}
 	@events {
 		method POST
@@ -32,7 +44,7 @@
 	}
 	handle @events {
 		request_body {
-			max_size 3MB
+			max_size 256KiB
 		}
 		reverse_proxy app:7860 {
 			header_up -Cookie

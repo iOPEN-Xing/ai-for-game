@@ -23,6 +23,7 @@ const paths = Object.freeze({
   "healthy": "/healthz",
   "inspect_agent_input": "/api/agent-runs/{run}/nodes/{node}/contexts/{fingerprint}",
   "login": "/api/login",
+  "logout": "/api/logout",
   "memory": "/api/memory",
   "metrics": "/metrics",
   "note": "/api/revisions/{rid}/note",

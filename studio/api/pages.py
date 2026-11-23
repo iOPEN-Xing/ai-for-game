@@ -57,7 +57,7 @@ def public_cartridge(bundle: str, request: Request):
     if "*" in requested or etag in requested:
         return Response(status_code=304, headers=headers)
     return Response(
-        cartridge.public_payload(cartridge.folder(bundle)),
+        cartridge.public_payload(bundle),
         media_type="application/json",
         headers=headers,
     )

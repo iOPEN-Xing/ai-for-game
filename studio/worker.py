@@ -6,6 +6,7 @@ import logging
 from contextlib import suppress
 
 from studio.domain import deliberation
+from studio.infra import retention
 from studio.infra.repositories import batches as batches_db
 from studio.infra.repositories import experiments as experiments_db
 from studio.infra.repositories import jobs as jobs_db
@@ -55,6 +56,16 @@ async def run_job(job):
             else type(cause).__name__
         )
         state = "failed" if job["attempts"] + 1 >= 2 else "queued"
+        logging.getLogger(__name__).warning(
+            "job_failure id=%s kind=%s stage=%s target=%s attempt=%s state=%s error_type=%s",
+            job["id"],
+            job["kind"],
+            job["stage"],
+            job["target"],
+            job["attempts"] + 1,
+            state,
+            type(cause).__name__,
+        )
         with db(True) as con:
             jobs_db.record_failure(con, state, explanation, job["id"])
             if job["kind"] == "analysis" and state == "failed":
@@ -105,6 +116,7 @@ def audit_deliveries(con):
 
 
 def reconcile():
+    retention.sweep(now())
     local = dt.datetime.now(ZONE)
     latest = local.date() - dt.timedelta(days=1 if local.hour >= 8 else 2)
     with db(True) as con:
@@ -116,7 +128,8 @@ def reconcile():
             experiments.settle(con, exp)
         prev = batches_db.last_successful_day(con)
         missing = [
-            dt.date.fromisoformat(r["day"]) for r in batches_db.retryable_days(con)
+            dt.date.fromisoformat(r["day"])
+            for r in batches_db.retryable_days(con, now())
         ]
     start = (
         dt.date.fromisoformat(prev["day"]) + dt.timedelta(days=1)

@@ -4,22 +4,22 @@ import hashlib
 import hmac
 import os
 import re
+import secrets
 from ipaddress import ip_address
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
 from studio.domain.commands import Login
-from studio.infra.store import Problem, now
+from studio.infra.repositories import sessions
+from studio.infra.store import Problem, db, now
 from studio.settings import deployed
 
 router = APIRouter()
 
 
-def signed_session(stamp, key):
-    return hmac.new(
-        key.encode(), ("loop:" + stamp).encode(), hashlib.sha256
-    ).hexdigest()
+def session_digest(token, key):
+    return hmac.new(key.encode(), token.encode(), hashlib.sha256).hexdigest()
 
 
 def admin(request: Request):
@@ -34,14 +34,12 @@ def admin(request: Request):
     token = request.headers.get("x-atelier-session") or request.cookies.get(
         "loop_session", ""
     )
-    parts = re.fullmatch(r"([0-9]{1,12})\.([a-f0-9]{64})", token)
-    if not parts or not key:
-        raise Problem("请使用制作台口令登录", 401)
-    stamp, signature = parts.groups()
-    if not now() <= int(stamp) <= now() + 86400 or not hmac.compare_digest(
-        signature, signed_session(stamp, key)
-    ):
-        raise Problem("请使用制作台口令登录", 401)
+    if key and re.fullmatch("[a-f0-9]{64}", token):
+        digest = session_digest(token, key)
+        with db() as con:
+            if sessions.valid(con, digest, now()):
+                return digest
+    raise Problem("请使用制作台口令登录", 401)
 
 
 Private = [Depends(admin)]
@@ -52,8 +50,9 @@ def login(body: Login, request: Request):
     key = os.getenv("STUDIO_ACCESS_KEY", "")
     if not key or not hmac.compare_digest(body.key.encode(), key.encode()):
         raise Problem("口令无效", 401)
-    stamp = str(now() + 12 * 3600)
-    token = stamp + "." + signed_session(stamp, key)
+    token = secrets.token_hex(32)
+    with db(True) as con:
+        sessions.issue(con, session_digest(token, key), now() + 12 * 3600)
     response = JSONResponse({"session": token})
     secure = request.url.scheme == "https"
     response.set_cookie(
@@ -67,9 +66,21 @@ def login(body: Login, request: Request):
     return response
 
 
+@router.post("/api/logout")
+def logout(request: Request, digest: str | None = Depends(admin)):
+    if digest:
+        with db(True) as con:
+            sessions.revoke(con, digest)
+    response = JSONResponse({"signed_out": True})
+    for name in ("loop_session", "loop_editor"):
+        response.delete_cookie(
+            name, httponly=True, secure=request.url.scheme == "https", samesite="strict"
+        )
+    return response
+
+
 def editor_identity(request: Request, response: Response) -> str:
     from studio import context
-    from studio.infra.store import db
 
     with db(True) as con:
         return context.editor(con, request, response)

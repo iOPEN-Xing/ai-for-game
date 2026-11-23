@@ -82,7 +82,7 @@ export async function mountPlayer(
         root.querySelector('.campaign-action').innerHTML =
           '<form action="' +
           esc(endpoint('visit_activity', {token: round})) +
-          '" method="post" target="_blank" rel="noopener noreferrer"><button class="primary">' +
+          '" method="post" target="_blank" rel="noopener"><button class="primary">' +
           esc(payload.action_label) +
           '</button></form>';
       }

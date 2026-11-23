@@ -8,8 +8,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 
+from studio.domain import limits as capacity
 from studio.infra import rate_limits
 from studio.infra.store import Problem
 from studio.settings import deployed
@@ -24,6 +26,7 @@ CODES = {
     404: "NOT_FOUND",
     405: "METHOD_NOT_ALLOWED",
     409: "CONFLICT",
+    413: "PAYLOAD_TOO_LARGE",
     422: "INVALID_INPUT",
     429: "RATE_LIMITED",
     503: "UNAVAILABLE",
@@ -54,13 +57,53 @@ def limits_for(path: str, ip: str) -> list[tuple[str, str, int, int]]:
         return []
     _, _, _, token, action = path.rstrip("/").split("/")
     if action == "open":
-        return [("open_ip", ip, 120, 60), ("open_game", ip + ":" + token, 60, 60)]
+        return [
+            ("open_ip", ip, 120, 60),
+            ("open_game", ip + ":" + token, 60, 60),
+            ("open_ip_day", ip, capacity.OPEN_PER_IP_DAY, 86400),
+        ]
     if action == "feedback":
         return [("feedback", ip, 10, 86400)]
     return [("player_events", ip, 600, 60), ("round_events", token, 60, 60)]
 
 
+class PlayerBodyLimit:
+    """Enforce the same limit for chunked bodies and Content-Length requests."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or not PLAYER_WRITE.fullmatch(scope["path"])
+        ):
+            return await self.app(scope, receive, send)
+        length = Headers(scope=scope).get("content-length")
+        if (
+            length
+            and length.isdecimal()
+            and (len(length) > 9 or int(length) > capacity.PLAYER_BODY_BYTES)
+        ):
+            response = failure(Request(scope), 413, "试玩数据超过 256 KiB")
+            return await response(scope, receive, send)
+        used = 0
+
+        async def limited_receive():
+            nonlocal used
+            message = await receive()
+            used += len(message.get("body", b""))
+            if used > capacity.PLAYER_BODY_BYTES:
+                raise HTTPException(413, "试玩数据超过 256 KiB")
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
 def install(app: FastAPI) -> None:
+    app.add_middleware(PlayerBodyLimit)
+
     @app.exception_handler(Problem)
     async def problem(request, exc):
         headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
@@ -85,17 +128,26 @@ def install(app: FastAPI) -> None:
         )
         origin = request.headers.get("origin")
         response = None
-        if request.method not in ("GET", "HEAD", "OPTIONS") and origin:
-            try:
-                source = urlsplit(origin)
-                same_origin = (
-                    source.netloc == request.headers.get("host")
-                    and source.scheme == request.url.scheme
-                )
-            except ValueError:
-                same_origin = False
-            if not same_origin:
-                response = failure(request, 403, "请求来源不匹配")
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            cookie_write = (
+                bool(request.cookies.get("loop_session"))
+                and not request.headers.get("x-atelier-session")
+                and request.url.path.rstrip("/") != "/api/login"
+            )
+            source_url = (
+                origin if origin is not None else request.headers.get("referer")
+            )
+            if source_url is not None or cookie_write:
+                try:
+                    source = urlsplit(source_url or "")
+                    same_origin = (
+                        source.netloc == request.headers.get("host")
+                        and source.scheme == request.url.scheme
+                    )
+                except ValueError:
+                    same_origin = False
+                if not same_origin:
+                    response = failure(request, 403, "请求来源不匹配")
         if response is None and deployed() and request.method == "POST":
             limits = limits_for(
                 request.url.path, request.client.host if request.client else "local"
@@ -115,6 +167,7 @@ def install(app: FastAPI) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers.setdefault("Referrer-Policy", "same-origin")
         if request.url.path.startswith("/api/") or request.url.path in (
+            "/healthz",
             "/readyz",
             "/metrics",
         ):

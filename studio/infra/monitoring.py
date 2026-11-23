@@ -3,7 +3,7 @@
 import shutil
 import sqlite3
 
-from studio.settings import data_dir
+from studio.settings import data_dir, studio_day_start
 
 from .store import db, now, one, rows
 
@@ -53,8 +53,16 @@ def readiness(worker_running: bool) -> dict:
 def metrics() -> str:
     with db() as con:
         jobs = rows(con, "SELECT state,count(*) AS n FROM jobs GROUP BY state")
+        usage = (
+            one(con, "SELECT * FROM player_intake WHERE day=?", studio_day_start(now()))
+            or {}
+        )
     return (
         "# TYPE studio_jobs gauge\n"
         + "".join(f'studio_jobs{{state="{r["state"]}"}} {r["n"]}\n' for r in jobs)
+        + "".join(
+            f"# TYPE studio_today_{name} gauge\nstudio_today_{name} {usage.get(name, 0)}\n"
+            for name in ("opens", "replay_bytes", "omitted_replays")
+        )
         + f"# TYPE studio_volume_free_bytes gauge\nstudio_volume_free_bytes {shutil.disk_usage(data_dir()).free}\n"
     )

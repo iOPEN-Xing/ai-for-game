@@ -11,8 +11,16 @@ docker compose exec -T app python -m studio.infra.backup export >"$partial"
 archive="$backup_dir/loop-$(date -u +%Y%m%dT%H%M%SZ)-${partial##*.loop-}.tar.gz"
 mv -- "$partial" "$archive"
 if [[ -n ${OSS_URL:-} ]]; then
-    ossutil cp "$archive" "${OSS_URL%/}/$(basename "$archive")"
+    metadata=x-oss-server-side-encryption:AES256
+    if [[ -n ${BACKUP_KMS_KEY_ID:-} ]]; then
+        metadata="x-oss-server-side-encryption:KMS#x-oss-server-side-encryption-key-id:$BACKUP_KMS_KEY_ID"
+    fi
+    ossutil cp "$archive" "${OSS_URL%/}/$(basename "$archive")" --meta="$metadata" >&2
 elif [[ -n ${S3_BUCKET:-} ]]; then
-    aws s3 cp "$archive" "s3://$S3_BUCKET/loop-atelier/$(basename "$archive")"
+    encryption=(--sse AES256)
+    if [[ -n ${BACKUP_KMS_KEY_ID:-} ]]; then
+        encryption=(--sse aws:kms --sse-kms-key-id "$BACKUP_KMS_KEY_ID")
+    fi
+    aws s3 cp "$archive" "s3://$S3_BUCKET/loop-atelier/$(basename "$archive")" "${encryption[@]}" >&2
 fi
 printf '%s\n' "$archive"

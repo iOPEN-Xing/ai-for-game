@@ -49,6 +49,38 @@ def daily_priorities(con, snapshot):
     )
 
 
+def schedule_candidates(con, doc):
+    pending = []
+    ids = doc["proposals"]
+    for candidate in doc["pending"]:
+        gid, kind = candidate["game"], candidate["kind"]
+        existing = proposals_db.for_batch(con, gid, doc["day"], kind)
+        if existing:
+            if existing["id"] not in ids:
+                ids.append(existing["id"])
+            continue
+        game = games_db.get(con, gid)
+        if game["live"] != candidate["revision"]:
+            doc["skipped"].append({**candidate, "reason": "观察窗冻结后线上版本已切换"})
+            continue
+        try:
+            ids.append(freeze(con, game, kind, doc["day"], doc["report"]))
+        except Problem as exc:
+            if exc.code == "QUOTA_EXCEEDED":
+                pending.append(candidate)
+                doc["retry_at"] = now() + exc.retry_after
+            elif exc.status == 409:
+                doc["skipped"].append({**candidate, "reason": str(exc)})
+            else:
+                raise
+    doc["pending"] = pending
+    if not pending:
+        doc.pop("retry_at", None)
+    status = "deferred" if pending else "queued" if ids else "complete"
+    batches_db.save(con, doc["day"], status, encode(doc), now())
+    return doc
+
+
 def run_batch(day):
     end = int(
         dt.datetime.combine(day + dt.timedelta(days=1), dt.time(), ZONE).timestamp()
@@ -65,6 +97,9 @@ def run_batch(day):
                 "needs_review",
             ):
                 return json.loads(existing["doc"])
+            if existing and existing["status"] == "deferred":
+                doc = json.loads(existing["doc"])
+                return doc if doc["retry_at"] > now() else schedule_candidates(con, doc)
             snapshot = report(con, end - 86400, end)
             if (
                 sum(g["starts"] for g in snapshot["games"])
@@ -79,14 +114,6 @@ def run_batch(day):
                 settlements.append(exp["id"])
             ranked = daily_priorities(con, snapshot)
             snapshot["priorities"] = ranked
-            ids = []
-            for i, item in enumerate(ranked[:3]):
-                g = games_db.get(con, item["game"])
-                for kind in ["iteration", "new_game"] if i == 0 else ["iteration"]:
-                    try:
-                        ids.append(freeze(con, g, kind, key, snapshot))
-                    except Problem:
-                        continue
             releases = batches_db.releases_in_window(con, end - 86400, end)
             launches = batches_db.launch_reconciliation(con, end, end, end)
             for launch in launches:
@@ -124,15 +151,21 @@ def run_batch(day):
                 "launch_reconciliation": launches,
                 "day": key,
                 "report": snapshot,
-                "proposals": ids,
+                "proposals": [],
+                "pending": [],
+                "skipped": [],
                 "settlements": settlements,
                 "releases": releases,
                 "top": [i["game"] for i in ranked[:3]],
             }
-            batches_db.save(
-                con, key, "queued" if ids else "complete", encode(doc), now()
-            )
-            return doc
+            for rank, item in enumerate(ranked[:3]):
+                game = games_db.get(con, item["game"])
+                kinds = ("iteration", "new_game") if rank == 0 else ("iteration",)
+                for kind in kinds:
+                    doc["pending"].append(
+                        {"game": game["id"], "revision": game["live"], "kind": kind}
+                    )
+            return schedule_candidates(con, doc)
     except Exception as exc:
         with db(True) as con:
             batches_db.fail(con, key, encode({"error": type(exc).__name__}), now())

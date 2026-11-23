@@ -78,13 +78,6 @@ def get(con, round_id):
     return need(con, "SELECT * FROM rounds WHERE id=?", round_id)
 
 
-def finish(con, ended, won, score, finish, replay, mistakes, rescues, slow, round_id):
-    con.execute(
-        "UPDATE rounds SET ended=?,won=?,score=?,finish=?,replay=?,mistakes=?,rescues=?,slow_round=? WHERE id=? AND ended IS NULL",
-        (ended, won, score, finish, replay, mistakes, rescues, slow, round_id),
-    )
-
-
 def timing(con, round_id):
     return need(con, "SELECT started,ended FROM rounds WHERE id=?", round_id)
 
@@ -105,3 +98,44 @@ def save_feedback(con, feedback_id, round_id, rating, comment, at):
         rating=excluded.rating,comment=excluded.comment,at=excluded.at""",
         (feedback_id, round_id, rating, comment, at),
     )
+
+
+def charge_open(con, day, maximum):
+    return (
+        con.execute(
+            """INSERT INTO player_intake(day,opens) VALUES(?,1)
+        ON CONFLICT(day) DO UPDATE SET opens=opens+1 WHERE opens<?""",
+            (day, maximum),
+        ).rowcount
+        == 1
+    )
+
+
+def record_end(con, *, token, at, won, score, finish, replay, state, day, budget):
+    # A duplicate or racing result must consume storage budget at most once.
+    usage = one(con, "SELECT replay_bytes FROM player_intake WHERE day=?", day)
+    retained = replay
+    if replay and (usage["replay_bytes"] if usage else 0) + len(replay) > budget:
+        retained = None
+    saved = con.execute(
+        """UPDATE rounds SET ended=?,won=?,score=?,finish=?,replay=?,mistakes=?,rescues=?,slow_round=?
+        WHERE id=? AND ended IS NULL""",
+        (
+            at,
+            won,
+            score,
+            finish,
+            retained,
+            state.get("mistakes"),
+            state.get("rescues"),
+            state.get("slow_round"),
+            token,
+        ),
+    ).rowcount
+    if saved and replay:
+        con.execute(
+            """INSERT INTO player_intake(day,replay_bytes,omitted_replays) VALUES(?,?,?)
+            ON CONFLICT(day) DO UPDATE SET replay_bytes=replay_bytes+excluded.replay_bytes,
+            omitted_replays=omitted_replays+excluded.omitted_replays""",
+            (day, len(retained or b""), int(retained is None)),
+        )

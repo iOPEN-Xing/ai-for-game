@@ -151,7 +151,7 @@ async def consult(role, schema, context):
             else ""
         )
         + (
-            "\nreference_ids 只能取自用户选中的参考记录，结合视觉观察和检索来源撰写调研结论。"
+            "\n每个方向用 reference_ids 从所选图中挑选最合适的 2–3 张，只有一张时引用该图。结合逐图观察和检索来源撰写结论。"
             if schema is Research
             else ""
         )
@@ -161,7 +161,7 @@ async def consult(role, schema, context):
             else ""
         )
         + (
-            "\n每个新精灵尽量用 reference 引用风格相近的现有实体 ID，根实体可为空。brief 描述轮廓、材质与游戏中的辨识特征。"
+            "\n查看方向选定的原始参考图，描述可借鉴的配色、构图及辨识特征。每个新精灵尽量用 reference 引用风格相近的现有实体 ID，根实体可为空。brief 描述轮廓、材质与游戏中的辨识特征。"
             if issubclass(schema, Art)
             else ""
         )
@@ -199,7 +199,6 @@ async def consult(role, schema, context):
     fingerprint = project_context.archive_input(
         run.get("id"), node, visible, image_hashes
     )
-    message = instruction
     evidence = context.get("evidence")
     failures = []
     calls = 0
@@ -223,6 +222,7 @@ async def consult(role, schema, context):
         )
         try:
             agent = Agent(name=role, system_prompt=prompt, model=model)
+            message = instruction
             for attempt in range(2):
                 calls += 1
                 request = UserMsg(
@@ -300,7 +300,6 @@ async def consult(role, schema, context):
                     for err in exc.errors(include_input=False)[:4]
                 )
             failures.append(f"{name} ({detail})")
-            message = instruction
         finally:
             await model.client.close()
     raise RuntimeError("模型调用或产物校验失败：" + "、".join(failures))

@@ -11,6 +11,8 @@ from pydantic import (
     model_validator,
 )
 
+from studio.domain import limits
+
 Text = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
 ]
@@ -105,33 +107,59 @@ class Campaign(Command):
         return self
 
 
+Key = Literal[
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "ArrowDown",
+    "Space",
+    "Enter",
+    "KeyW",
+    "KeyA",
+    "KeyS",
+    "KeyD",
+]
+
+
 class GameInput(Command):
     type: Literal["tap", "press", "move", "release", "key", "keyup", "tick"]
     x: float | None = Field(default=None, ge=0, le=1)
     y: float | None = Field(default=None, ge=0, le=1)
     dt: float | None = Field(default=None, gt=0, le=0.101)
-    key: (
-        Literal[
-            "ArrowLeft",
-            "ArrowRight",
-            "ArrowUp",
-            "ArrowDown",
-            "Space",
-            "Enter",
-            "KeyW",
-            "KeyA",
-            "KeyS",
-            "KeyD",
-        ]
-        | None
-    ) = None
+    key: Key | None = None
+
+    @model_validator(mode="after")
+    def required_fields(self):
+        if self.type == "tick" and self.dt is None:
+            raise ValueError("时钟输入缺少 dt")
+        if self.type in ("tap", "press", "move", "release") and (
+            self.x is None or self.y is None
+        ):
+            raise ValueError("指针输入缺少坐标")
+        if self.type in ("key", "keyup") and self.key is None:
+            raise ValueError("按键输入缺少键名")
+        return self
+
+
+# The iframe gives the same quantized coordinates to the game and to the journal.
+# Older, object-shaped inputs retain their original floating point precision.
+Coordinate = Annotated[int, Field(strict=True, ge=0, le=10000)]
+Milliseconds = Annotated[int, Field(strict=True, ge=1, le=101)]
+RecordedInput = (
+    GameInput
+    | Milliseconds
+    | tuple[Literal["tap", "press", "move", "release"], Coordinate, Coordinate]
+    | tuple[Literal["key", "keyup"], Key]
+)
 
 
 class RoundEvent(Command):
     event: Literal["start", "end"]
     won: bool = False
     finish: Literal["natural", "quit"] = "natural"
-    inputs: list[GameInput] = Field(default_factory=list, max_length=12000)
+    inputs: list[RecordedInput] = Field(
+        default_factory=list, max_length=limits.REPLAY_STEPS
+    )
     score: int = Field(default=0, ge=-1000000, le=1000000)
 
 

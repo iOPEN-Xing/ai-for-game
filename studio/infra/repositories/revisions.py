@@ -54,10 +54,18 @@ def download(con, revision_id):
     )
 
 
+def play_controls(con, revision_id):
+    return need(
+        con,
+        "SELECT json_extract(docs,'$.quality_report.quick_start') AS controls FROM revisions WHERE id=?",
+        revision_id,
+    )["controls"]
+
+
 def playable(con, revision_id, game_id):
     return need(
         con,
-        "SELECT id,bundle,num,stage,docs FROM revisions WHERE id=? AND game=? AND bundle IS NOT NULL",
+        "SELECT id,bundle,num,stage FROM revisions WHERE id=? AND game=? AND bundle IS NOT NULL",
         revision_id,
         game_id,
     )

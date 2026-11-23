@@ -84,3 +84,8 @@ def validate_runtime() -> None:
         raise RuntimeError("公网运行须在服务器环境中设置 STUDIO_ACCESS_KEY")
     if os.getenv("ZAI_WIRE_API", "responses") != "responses":
         raise RuntimeError("ZAI_WIRE_API 必须使用 responses")
+
+
+def studio_day_start(timestamp: int) -> int:
+    """Start of the operational calendar day, Asia/Shanghai."""
+    return (timestamp + 8 * 3600) // 86400 * 86400 - 8 * 3600

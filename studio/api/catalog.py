@@ -9,8 +9,11 @@ router = APIRouter(dependencies=[Depends(admin)])
 
 
 @router.get("/api/studio")
-def overview():
-    return catalog.overview()
+def overview(request: Request):
+    return {
+        **catalog.overview(),
+        "can_sign_out": bool(request.cookies.get("loop_session")),
+    }
 
 
 @router.post("/api/games", status_code=201)

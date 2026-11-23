@@ -1,5 +1,9 @@
 name: Studio checks
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
 permissions:
   contents: read
 
@@ -35,9 +39,19 @@ jobs:
         run: |
           cp .env.example .env
           docker compose config --quiet
-          docker compose up -d --build --wait --wait-timeout 150
+          docker compose build app
+          python -m tests.browser.seed "$RUNNER_TEMP/fixture.tar.gz" >> "$GITHUB_ENV"
+          ./deploy/restore.sh "$RUNNER_TEMP/fixture.tar.gz" "$STUDIO_VOLUME"
+          docker compose up -d --no-build --wait --wait-timeout 150
           curl --fail --retry 5 --retry-connrefused http://127.0.0.1:7860/readyz
           test "$(docker compose exec -T app id -u)" = 10001
+          docker compose exec -T app python - <<'PYREF'
+          import re
+          from pathlib import Path
+          root = Path('docs/original')
+          pictures = set(re.findall(r'src="(assets/[^"]+)"', (root/'index.html').read_text()))
+          assert len(pictures) == 60 and all((root/p).is_file() for p in pictures)
+          PYREF
           docker compose exec -T caddy cat /data/caddy/pki/authorities/local/root.crt > "$RUNNER_TEMP/caddy-ci.crt"
           export CURL_CA_BUNDLE="$RUNNER_TEMP/caddy-ci.crt"
           curl --fail --retry 5 --retry-connrefused -L https://localhost/ | grep -q 'id="player"'
@@ -61,3 +75,16 @@ jobs:
       - name: Shut down the isolated test stack
         if: always()
         run: docker compose down --volumes || true
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v1.')
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the verified v1 tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "回路制作室 $GITHUB_REF_NAME" --notes-file docs/V1.md

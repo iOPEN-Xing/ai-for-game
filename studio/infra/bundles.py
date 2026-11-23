@@ -22,8 +22,41 @@ def player_data(key):
 
 
 @lru_cache(maxsize=8)
-def public_payload(root):
-    return encode(read_player_assets(root)).encode("utf-8")
+def _cached_payload(build_root, key):
+    return encode(read_player_assets(build_root / key)).encode("utf-8")
+
+
+def public_payload(key):
+    root = folder(key)
+    return _cached_payload(root.parent, root.name)
+
+
+@lru_cache(maxsize=128)
+def _manifest(build_root, key):
+    return json.loads((build_root / key / "manifest.json").read_bytes())
+
+
+def manifest(key):
+    root = folder(key)
+    return _manifest(root.parent, root.name)
+
+
+@lru_cache(maxsize=64)
+def _level_config(build_root, key):
+    root = build_root / key
+    try:
+        return json.loads((root / "level.json").read_bytes())
+    except FileNotFoundError:
+        if (root / "manifest.json").is_file() and _manifest(build_root, key).get(
+            "level_file"
+        ):
+            raise ValueError("构建缺少已登记的关卡配置") from None
+        return None  # Bundles built before v1 keep their configuration in the remote entry.
+
+
+def level_config(key):
+    root = folder(key)
+    return _level_config(root.parent, key)
 
 
 def read_player_assets(root):

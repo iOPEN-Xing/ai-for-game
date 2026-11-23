@@ -4,6 +4,8 @@
 
 本仓库交付给一个内部制作团队，在阿里云轻量应用服务器上对外提供试玩。制作台通过 SSH 隧道访问。模型、图片、审批和运营数据都由团队管理。适用客户和试点指标见 [试点说明](docs/PILOT.md)。
 
+[v1 版本说明](docs/V1.md) · [七图工程验收](docs/ACCEPTANCE.md) · [阿里云部署](docs/RUNBOOK.md)
+
 ## 本地运行
 
 在项目根目录使用 Python 3.12。
@@ -46,4 +48,4 @@ curl --fail http://127.0.0.1:7860/readyz
 .venv/bin/python -m scripts.sync_web_routes --check
 ```
 
-测试创建独立数据库，使用受控模型输出，运行实际审批、SQLite 事务、游戏构建、QuickJS 回放及实验结算。变更 HTTP 路由后执行 `.venv/bin/python -m scripts.sync_web_routes` 更新前端接口表。仓库 CI 检查 Python、JavaScript 和 Linux 容器启动，再用 Chrome 验证团队页面和桌面、手机尺寸下的试玩流程。[持续集成](.github/workflows/check.yml)
+测试创建独立数据库，使用受控模型输出，运行实际审批、SQLite 事务、游戏构建、QuickJS 回放及实验结算。变更 HTTP 路由后执行 `.venv/bin/python -m scripts.sync_web_routes` 更新前端接口表。仓库 CI 检查 Python、JavaScript 和 Linux 容器启动。它通过 Chrome 操作桌面与手机尺寸下的样片，再在测试发布的迷宫上通关、提交反馈并核对活动跳转。[持续集成](.github/workflows/check.yml)

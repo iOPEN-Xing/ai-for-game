@@ -144,6 +144,10 @@ async function blueprints(refresh) {
       较父版本变更: L.changes,
       ...(pack.removed_levels?.length ? { 已移除关卡: pack.removed_levels } : {}),
     });
+    if (pack.configuration) {
+      $('#level-detail').insertAdjacentHTML('beforeend', '<details><summary>本关发给宿主的配置 · level.json</summary>' +
+        kv(pack.configuration.entries[i]) + '</details>');
+    }
     if (['quality', 'ready'].includes(d.revision.stage)) {
       const fields = { seconds: '时限（秒）', quota: '目标数量', radius: '目标半径', pace: '节拍', size: '网格边长' };
       const editor = $('#blueprint-editor');

@@ -56,36 +56,30 @@ def compile_bundle(rev, docs):
                 "proof": verify_game(game, cases),
             }
         )
-    # The prefab remote consumes the saved blueprint. Its generator stays in the authoring bundle.
-    factory = source("factory.js")
-    shared = (
-        factory[: factory.index("function maze")]
-        if design["mode"] == "prefab"
-        else factory
-    )
-    runtime_curve = curve if design["mode"] == "runtime" else ""
+    # The exported module carries the exact same defaults for standalone and old hosts.
+    runtime = design["mode"] == "runtime"
+    config = {
+        "version": 1,
+        "mode": design["mode"],
+        "seed": rev["seed"],
+        "family": design["game_type"],
+        "count": len(levels),
+        "entries": params if runtime else levels,
+    }
     get_level = (
-        "i=>makeLevel(i,"
-        + str(len(levels))
-        + ","
-        + str(rev["seed"])
-        + ","
-        + encode(design["game_type"])
-        + ",parameters)"
-        if design["mode"] == "runtime"
-        else "i=>levels[i-1]"
+        "(i,entry=shippedConfig.entries[i-1])=>makeLevel(i,shippedConfig.count,shippedConfig.seed,shippedConfig.family,()=>entry)"
+        if runtime
+        else "(i,entry=shippedConfig.entries[i-1])=>entry"
     )
     remote = "\n".join(
         [
             "'use strict';",
             "globalThis.LoopCartridge=(()=>{",
-            shared,
+            source("factory.js") if runtime else source("level-helpers.js"),
             source("base.js"),
             game,
-            runtime_curve,
-            "const levels="
-            + encode(levels if design["mode"] == "prefab" else [])
-            + ";",
+            curve if runtime else "",
+            "const shippedConfig=" + encode(config) + ";",
             "const module={start,step,draw,level:" + get_level + "};",
             "return {init:()=>{},get:async key=>{if(key!=='./game')throw Error('Unknown module');return ()=>module;}};})();",
         ]
@@ -93,7 +87,12 @@ def compile_bundle(rev, docs):
     # Check the exact remote entry generated for release.
     published = remote_context(remote)
     for level in levels:
-        if evaluate(published, f"loadedGame.level({level['index']})") != level:
+        index = level["index"]
+        entry = encode(config["entries"][index - 1])
+        if (
+            evaluate(published, f"loadedGame.level({index})") != level
+            or evaluate(published, f"loadedGame.level({index},{entry})") != level
+        ):
             raise ValueError("发布关卡与验收蓝图不一致")
         if level["family"] == "trail":
             verify_blueprint_play(published, level, "loadedGame")
@@ -114,6 +113,7 @@ def compile_bundle(rev, docs):
         writer.writerow({"level": i, **{k: p[k] for k in writer.fieldnames[1:]}})
     asset = {
         "style": art["style"],
+        "reference_ids": art.get("research_references", {}).get("ids", []),
         "anchors": {
             k: art.get(k) for k in ("base_anchor", "style_anchor", "entity_anchor")
         },
@@ -164,6 +164,7 @@ def compile_bundle(rev, docs):
         "Core_GDD.md": gdd_text.encode(),
         "Difficulty_Config.csv": difficulty.getvalue().encode(),
         "Level_Pack.json": encode(pack).encode(),
+        "level.json": encode(config).encode(),
         "asset.json": encode(asset).encode(),
         "game.js": game.encode(),
         "level-generator.js": curve.encode(),
@@ -182,6 +183,7 @@ def compile_bundle(rev, docs):
         "mode": design["mode"],
         "family": design["game_type"],
         "entry": "remoteEntry.js",
+        "level_file": "level.json",
         "exposes": "./game",
         "assets": asset,
     }

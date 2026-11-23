@@ -52,7 +52,11 @@ def save(con, day, status, doc, at):
 
 
 def fail(con, day, doc, at):
-    con.execute("INSERT OR REPLACE INTO batches VALUES(?,'failed',?,?)", (day, doc, at))
+    con.execute(
+        """INSERT INTO batches VALUES(?,'failed',?,?) ON CONFLICT(day) DO UPDATE SET
+        status='failed',doc=excluded.doc,at=excluded.at WHERE batches.status='failed'""",
+        (day, doc, at),
+    )
 
 
 def queued(con):
@@ -71,7 +75,9 @@ def last_successful_day(con):
     return one(con, "SELECT MAX(day) day FROM batches WHERE status!='failed'")
 
 
-def retryable_days(con):
+def retryable_days(con, at):
     return rows(
-        con, "SELECT day FROM batches WHERE status='failed' ORDER BY day LIMIT 4"
+        con,
+        """SELECT day FROM batches WHERE status='failed' OR (status='deferred' AND json_extract(doc,'$.retry_at')<=?) ORDER BY day LIMIT 14""",
+        at,
     )

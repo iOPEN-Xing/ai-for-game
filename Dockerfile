@@ -15,9 +15,8 @@ RUN pip install --no-cache-dir --only-binary=:all: -c requirements-linux.lock -r
 COPY app.py ./
 COPY studio/ studio/
 COPY docs/PILOT.md docs/
-# The team reference page uses these assets. Compose mounts the complete archive read-only.
 COPY docs/original/index.html docs/original/
-COPY docs/original/assets/img-19.png docs/original/assets/img-20.png docs/original/assets/img-21.png docs/original/assets/
+COPY docs/original/assets/ docs/original/assets/
 USER 10001:10001
 EXPOSE 7860
 CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "1", "--forwarded-allow-ips", "*", "--no-access-log"]

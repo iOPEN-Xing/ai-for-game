@@ -5,7 +5,7 @@ import json
 import quickjs
 
 from studio.domain.levels import blueprint_path, check_curve
-from studio.infra.bundles import folder
+from studio.infra.bundles import folder, level_config
 from studio.infra.store import encode
 from studio.settings import ENGINE
 
@@ -33,7 +33,13 @@ Use the exact names, pure deterministic math. Include only the function, no expo
 
 
 def source(name):
-    return (ENGINE / name).read_text()
+    code = (ENGINE / name).read_text()
+    # Authoring and legacy callers consume a complete, standalone factory.
+    return (
+        (ENGINE / "level-helpers.js").read_text() + code
+        if name == "factory.js"
+        else code
+    )
 
 
 def js_context(*scripts):
@@ -192,13 +198,28 @@ def remote_context(script):
 
 def replay(key, level_number, events):
     ctx = remote_context((folder(key) / "remoteEntry.js").read_text())
+    config = level_config(key)
+    entry = (
+        encode(config["entries"][level_number - 1])
+        if config is not None
+        else "undefined"
+    )
     ctx.set("recordedInputs", ctx.parse_json(encode(events)))
     return evaluate(
         ctx,
         "(() => {const L=loadedGame.level("
         + str(int(level_number))
+        + ","
+        + entry
         + ");let s=loadedGame.start(L);"
-        "for(const e of recordedInputs){if(s.done) break; s=loadedGame.step(s,e,L);} "
+        """for (const record of recordedInputs) {
+            if (s.done) break;
+            const event = typeof record === 'number' ? {type:'tick',dt:record/1000}
+              : !Array.isArray(record) ? record
+              : record.length === 3 ? {type:record[0],x:record[1]/10000,y:record[2]/10000}
+              : {type:record[0],key:record[1]};
+            s=loadedGame.step(s,event,L);
+        } """
         "return {done:s.done,won:s.won,score:Math.trunc(s.score),"
         "mistakes:Number.isSafeInteger(s.mistakes)&&s.mistakes>=0?s.mistakes:null,"
         "rescues:Number.isSafeInteger(s.rescues)&&s.rescues>=0?s.rescues:null,"

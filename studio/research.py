@@ -99,11 +99,18 @@ def retrieve(brief):
 
 
 def attach(directions, references):
+    registry = {r["id"]: r for r in references}
     for d in directions:
         ids = d.get("reference_ids", [])
-        registry = {r["id"]: r for r in references}
-        if not ids or len(ids) != len(set(ids)) or set(ids) - registry.keys():
-            raise ValueError("每个方向必须引用本次选中的真实参考图 ID")
+        if (
+            not min(2, len(registry)) <= len(ids) <= 3
+            or not ids
+            or len(ids) != len(set(ids))
+            or set(ids) - registry.keys()
+        ):
+            raise ValueError(
+                "每个方向须从所选图中选出 2–3 张不同的美术参考，用户只选一张时引用该图"
+            )
         d["references"] = [registry[i] for i in ids]
 
 
@@ -254,6 +261,23 @@ async def frozen_image(run, reference):
         digest = hashlib.sha256(content).hexdigest()
         with db(True) as con:
             item = evidence_db.select_reference(con, run, ref, digest, content)
-    if hashlib.sha256(item["content"]).hexdigest() != item["digest"]:
-        raise ValueError("已选参考图与冻结内容摘要不符")
+    return checked_image(ref, item)
+
+
+def checked_image(ref, item):
+    if not item or hashlib.sha256(item["content"]).hexdigest() != item["digest"]:
+        raise ValueError("已选参考图缺失或与冻结内容摘要不符")
     return {"name": ref, "data": base64.b64encode(item["content"]).decode("ascii")}
+
+
+def archived_images(source_run, run, refs):
+    with db(write=source_run != run) as con:
+        images = []
+        for ref in refs:
+            item = evidence_db.reference_for_run(con, source_run, ref)
+            images.append(checked_image(ref, item))
+            if source_run != run:
+                digest = evidence_db.link_reference(con, run, ref, item["digest"])
+                if digest != item["digest"]:
+                    raise ValueError("当前版本已有不同的参考图摘要")
+    return images

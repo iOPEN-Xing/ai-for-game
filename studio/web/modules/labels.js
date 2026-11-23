@@ -29,6 +29,7 @@ const labels = {
   queued: '执行中',
   complete: '已完成',
   needs_review: '需检查',
+  deferred: '待次日配额',
   needs_evidence: '待补证',
 };
 

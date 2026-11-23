@@ -10,9 +10,10 @@
 !docs/original/
 !docs/original/index.html
 !docs/original/assets/
-!docs/original/assets/img-19.png
-!docs/original/assets/img-20.png
-!docs/original/assets/img-21.png
+!docs/original/assets/*.png
+!docs/original/assets/*.gif
+!docs/original/assets/*.jpg
+!docs/original/assets/*.webp
 **/__pycache__/
 **/*.pyc
 **/.DS_Store

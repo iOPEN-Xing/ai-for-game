@@ -4,6 +4,7 @@ import json
 
 from studio import cartridge
 from studio.domain.commands import BlueprintEdit
+from studio.infra.bundles import level_config
 from studio.infra.repositories import revisions as revisions_db
 from studio.infra.store import Problem, db, encode, enqueue, log
 
@@ -40,6 +41,9 @@ def blueprints(rid):
         if parent and i >= len(old):
             L["changes"] = ["新增关卡"]
     p["removed_levels"] = [lv["index"] for lv in old[len(p["levels"]) :]]
+    config = level_config(r["bundle"])
+    if config is not None:
+        p["configuration"] = config
     return p
 
 

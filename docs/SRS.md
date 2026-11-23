@@ -20,12 +20,12 @@
 
 原案例口径校注（不可混用，详见 `original/01-全文整理.md` 附录 B）：生产侧「2 周 6 款、最快平台内 ~1 小时、含验收到上线最快 2 天」；运营侧「首周 12 款、方案到上线 3 天、累计 20+ 次迭代、95%+ 正向 / 40%+ 全指标正向」；图 3 为 2026-08 单月口径（5 类型 / 9 新游 / 12 款迭代 / 20+ 次）。**本 SRS 不承诺复现上述数字**，只承诺复现其背后的工程机制（上下文流转 + 决策闭环），并以 `PILOT.md` 的试点方法重新计时验证。
 
-### 1.2 两种部署形态（必须同时满足）
+### 1.2 v1 工作室版的两种运行方式
 
 | 形态 | 监听与入口 | 鉴权 | 用途 |
 | --- | --- | --- | --- |
 | **单机/自托管** | `127.0.0.1:7860` | 无口令可本机试用（现状行为保留，仅限 `STUDIO_DEPLOYED != 1` 且监听本地时） | 本地试玩、开发联调、回归测试 |
-| **公网服务（含 ModelScope 创空间 / ECS）** | `0.0.0.0:7860` + 反代（Caddy/平台网关，TLS + 缓存）+ 持久卷 | **默认拒绝匿名管理操作**；玩家链路免登但强限流；管理/运营链路见 §9 矩阵 | 对外试点、收费验证、上线运营 |
+| **阿里云轻量服务器** | Caddy 对公网开放 80、443，宿主机制作台绑定 `127.0.0.1:7860`，使用持久卷 | 团队通过 SSH 转发与制作台口令登录。玩家免登录试玩已发布游戏 | 内部团队制作、公众试玩和活动效果验证 |
 
 公网形态硬要求：密钥走运行时环境注入（永不进包/进库/进日志）；`GET /healthz` 为存活探针，`GET /readyz` 为就绪探针（DB 可写 + 卷剩余 + 队列深度三项，任一失败即 NotReady）；单 worker（`workers=1`，SQLite WAL + 文件锁选主，见 ADR-002）。
 
@@ -50,6 +50,8 @@
 
 ## 2. 术语与角色
 
+v1 上线范围由 [ADR-004](ADR/ADR-004-private-studio.md) 确定。表中 Workspace、User、RegisteredPlayer、Maintainer、PlatformAdmin 及后续章节对应的注册、工单、计费和跨空间接口均为未来平台设计。当前团队共享一个工作室，拥有可单独退出或通过轮换口令统一撤销的会话。
+
 | 术语 | 含义 | 代码锚点 |
 | --- | --- | --- |
 | Game / Revision / Stage / Bundle / Round / Proposal / Experiment / Knowledge / 冻结证据 / checks / Skill | 沿用 v1.0 定义 | `studio/store.py:init`、`studio/settings.py`、`studio/deliberation.py:Check`、`studio/acceptance.py` |
@@ -57,11 +59,11 @@
 | **Producer + 6 Agent**（img-14/img-15） | `GameplayResearch → Planner → ArtDesigner → GameCoder → LevelDesigner → LevelCoder` + 独立 `QualityReviewer`；Producer 是唯一调度者，全局状态串联上下文 | `studio/production.py:STEPS/NEXT`、`studio/agents.py` |
 | **Workspace（工作空间）** | 公网计费与隔离单元：一组人、一组游戏、独立配额与 API Key。现状缺失，v2.1 新增 | 新增表 `workspaces/members/api_keys`（§10） |
 | **User（注册用户）** | 邮箱 + 口令注册的自然人身份。全平台唯一，可归属多个空间。`users(id,email,pass_hash,status,created)`，`status: active/suspended/deleted` | 新增；现状无，P6 落地。匿名 PlayerID 不等于 User |
-| **RegisteredPlayer（注册玩家）** | 用 User 身份登录玩家端的玩家：可跨设备同步进度、可提交带身份的反馈/工单、可查自己的请求处理状态。仍不лагают跨站追踪 | `rounds.player` 绑定 `user_id`（可空，匿名时为空）；`feedback.reporter=user_id` |
+| **RegisteredPlayer（注册玩家）** | 用 User 身份登录玩家端的玩家：可跨设备同步进度、可提交带身份的反馈/工单、可查自己的请求处理状态。沿用站内玩家标识 | `rounds.player` 绑定 `user_id`（可空，匿名时为空）；`feedback.reporter=user_id` |
 | **AnonymousPlayer（匿名玩家）** | 未登录玩家：浏览器随机 `loop-player` 标识，仅本机去重与分流。**只能玩游戏 + 提交匿名反馈，不能查处理进度、不能进实验白名单、不能调任何特权接口** |现状 `Player` 正则即此；保留 |
 | **Maintainer（开发维护者）** | 空间内 `owner/editor/viewer` 三档。`owner` 管成员/密钥/删除/冻结；`editor` 做游戏/批方案/触发分析/处理玩家请求；`viewer` 只读报表与证据，不可批准 | 替代单一 `STUDIO_ACCESS_KEY` 共享口令（§9.3 矩阵） |
 | **PlatformAdmin（平台运维）** | 跨空间只读健康/指标/费用 + 紧急冻结违规空间。**不能读空间内游戏源码与玩家原文（隐私隔离），只能看脱敏指标与审计摘要** | `metrics` + `audit_log` 摘要权限 |
-| Session | 制作台登录态：HMAC 时间戳令牌现状保留语义，v2.1 加哈希口令 + 轮换 + 失窃可吊销 | `app.py:signed_session/admin/login` |
+| Session | v1 每次登录签发独立的随机凭据，库中保存带密钥的摘要，12 小时到期，退出或轮换口令可撤销 | `studio/api/auth.py` |
 | PlayerID | 浏览器随机匿名标识（`loop-player`），仅用于分流与去重，不做跨站追踪 | `studio/web/play-host.js:playerId` |
 | 公共链路 / 特权链路 | 公共：开局/事件/反馈/跳转/已发布包；特权：建游戏/改方案/看报表/批提案/触发分析 | §9 分组，公共链路免登+强限流，特权链路鉴权+审计 |
 | **冻结证据**（img-55 门禁①） | 分析前一次性快照：观测窗 + 版本 + 构建哈希 + 分母 + 源码 + 关卡参数行 + 反馈 + 知识引用；V1 样本禁配 V2 源码（R-EVIDENCE） | `studio/operations.py:freeze` |

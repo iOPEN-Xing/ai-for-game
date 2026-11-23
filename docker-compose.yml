@@ -12,7 +12,6 @@ services:
       - "127.0.0.1:7860:7860"
     volumes:
       - loop-data:/data
-      - ./docs/original:/app/docs/original:ro
     restart: unless-stopped
     init: true
     mem_limit: 3g
@@ -31,6 +30,7 @@ services:
     ports: ["80:80", "443:443"]
     environment:
       DOMAIN: ${DOMAIN:?请填写玩家域名}
+      SAMPLE_GAME: ${SAMPLE_GAME:-harbor}
       ACME_EMAIL: ${ACME_EMAIL:?请填写证书通知邮箱}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

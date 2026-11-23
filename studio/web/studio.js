@@ -12,6 +12,8 @@ let routeVersion = 0, timer = null;
 const tab = () => parts()[0] || 'home';
 
 function login() {
+  $('#logout').hidden = true;
+  $('#model').textContent = '';
   root.innerHTML =
     heading('登录制作室', '输入团队口令，打开项目、审批和运营报表。') +
     '<form id="login" class="card fields" style="max-width:420px"><label>制作台口令<input type="password" required autocomplete="current-password"></label><button class="primary">进入工作室</button><span class="err" role="alert"></span></form>';
@@ -106,6 +108,7 @@ async function refresh(poll = false) {
     const snapshot = await api(endpoint('overview'));
     if (seq !== routeVersion) return;
     state.overview = snapshot;
+    $('#logout').hidden = !snapshot.can_sign_out;
     $('#model').textContent = 'AgentScope / ' + state.overview.model;
     document.title = (names[page] || names.home) + ' · 回路制作室';
     document.querySelectorAll('[data-nav]').forEach((a) => {
@@ -193,6 +196,15 @@ async function decide(action, extra = {}) {
   await api(endpoint('decision', {rid: r.id}), { serial: r.serial, action, ...extra });
   await refresh();
 }
+
+$('#logout').onclick = async () => {
+  try {
+    await api(endpoint('logout'), {});
+    location.reload();
+  } catch (err) {
+    toast(err.message);
+  }
+};
 
 $('#menu').onclick = () => {
   const open = document.body.classList.toggle('nav-open');

@@ -98,6 +98,12 @@ def export_backup(source: Path, stream) -> None:
         ):
             src.backup(dst)
             dst.execute("PRAGMA journal_mode=DELETE")
+            # A recovery must never resurrect a logged-out browser session.
+            if dst.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='team_sessions'"
+            ).fetchone():
+                with dst:
+                    dst.execute("DELETE FROM team_sessions")
         # Only the mutable database needs a temporary copy. Serve immutable files in place.
         files = snapshot_files(source, snapshot / DB)
         hashes = {name: sha256(path) for name, path in files.items()}

@@ -194,8 +194,18 @@ def reference_for_run(con, run, reference):
 
 def select_reference(con, run, reference, digest, content):
     con.execute("INSERT OR IGNORE INTO reference_blobs VALUES(?,?)", (digest, content))
+    link_reference(con, run, reference, digest)
+    return reference_for_run(con, run, reference)
+
+
+def link_reference(con, run, reference, digest):
     con.execute(
         "INSERT OR IGNORE INTO reference_selections VALUES(?,?,?)",
         (run, reference, digest),
     )
-    return reference_for_run(con, run, reference)
+    return need(
+        con,
+        "SELECT digest FROM reference_selections WHERE run=? AND ref=?",
+        run,
+        reference,
+    )["digest"]

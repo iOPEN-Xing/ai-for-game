@@ -51,12 +51,19 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_model_configuration_and_fallback_retain_role_skills(self):
         calls = []
+        inputs = []
 
         class TestAgent:
             def __init__(self, name, system_prompt, model):
                 calls.append((name, system_prompt, model))
 
-            async def reply(self, _message):
+            async def reply(self, message):
+                inputs.append(message.get_text_content())
+                if len(inputs) == 1:
+                    return SimpleNamespace(
+                        finished_reason=agents.ReplyFinishedReason.COMPLETED,
+                        get_text_content=lambda: "{}",
+                    )
                 if len(calls) == 1:
                     raise ConnectionError("upstream unavailable")
                 return SimpleNamespace(
@@ -88,6 +95,8 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
                 "Producer", agents.Route, {"request_stage": "design"}
             )
         self.assertEqual(provider, "zai_2")
+        self.assertIn("请纠正", inputs[1])
+        self.assertEqual(json.loads(inputs[2]), {"request_stage": "design"})
         self.assertEqual(result["_run"]["model"], "glm-5.4")
         self.assertEqual(
             [call[2].credential.api_key.get_secret_value() for call in calls],

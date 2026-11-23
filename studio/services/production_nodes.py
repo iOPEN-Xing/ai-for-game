@@ -88,6 +88,32 @@ async def prepare_request(key, revision, docs, prior, context):
         data["level_parameter_contract"] = cartridge.CURVE_ABI
     elif key == "art":
         role, schema = "ArtDesigner", agents.ArtSpec
+        direction = data.get("selected_direction", {})
+        refs = direction.get("references", [])
+        if refs and "art_spec" not in docs:
+            analysis = docs.get("visual_analysis", {})
+            original_run = analysis.get("reference_run") or analysis.get(
+                "_run", {}
+            ).get("run_id")
+            ids = [ref["id"] for ref in refs]
+            if original_run:
+                data["_image_inputs"] = research.archived_images(
+                    original_run, context["_run_binding"]["id"], ids
+                )
+            else:
+                # Legacy reports may predate frozen pixels. Bind their references once
+                # to the current revision and record that provenance explicitly.
+                original_run = context["_run_binding"]["id"]
+                data["_image_inputs"] = await asyncio.gather(
+                    *(research.frozen_image(original_run, ref) for ref in refs)
+                )
+            data["art_references"] = {
+                "run": original_run,
+                "ids": ids,
+                "observations": {
+                    ref: analysis.get("observations", {}).get(ref) for ref in ids
+                },
+            }
         previous_art = docs.get("prior_art") or prior.get("art")
         if previous_art:
             data["previous_art"] = previous_art
@@ -170,6 +196,8 @@ async def produce_artifact(key, role, schema, data, revision, game, docs):
                         touched,
                         (docs.get("impact") or {}).get("audio", False),
                     )
+                if "art_references" in data:
+                    value["research_references"] = data["art_references"]
                 checkpoint(rev_id, stage, "art_spec", value, role, provider)
                 docs["art_spec"] = value
             await image_service.materialize(value)
@@ -213,6 +241,7 @@ async def validate_artifact(key, data, value, revision, game, docs):
     elif key == "visual_analysis":
         if set(value["observations"]) != set(docs["selected_references"]):
             raise ValueError("需要逐张记录所选图片的观察，以原参考图 ID 为键")
+        value["reference_run"] = data["_run_binding"]["id"]
     elif key == "research":
         research.attach(value["directions"], data["selected_references"])
         value["visual_observations"] = docs["visual_analysis"]["observations"]
