@@ -1,5 +1,7 @@
 """SQLite access for jobs. Transactions are owned by the calling use case."""
 
+import json
+
 from studio.infra.store import need, one, rows
 
 
@@ -106,12 +108,30 @@ def recover(con, state, reason, job_id):
     )
 
 
-def recover_stale(con, cutoff):
+def recover_stale(con, cutoff, active_jobs=()):
     con.execute(
-        "UPDATE jobs SET state='queued' WHERE state='running' AND heartbeat<?",
-        (cutoff,),
+        "UPDATE jobs SET state='queued' WHERE state='running' AND heartbeat<? "
+        "AND id NOT IN (SELECT value FROM json_each(?))",
+        (cutoff, json.dumps(active_jobs)),
     )
 
 
 def recover_owned(con):
     con.execute("UPDATE jobs SET state='queued' WHERE state='running'")
+
+
+def leader_pulse(con, at):
+    con.execute(
+        """INSERT INTO worker_health(singleton,heartbeat) VALUES(1,?)
+        ON CONFLICT(singleton) DO UPDATE SET heartbeat=excluded.heartbeat""",
+        (at,),
+    )
+
+
+def reconciliation_result(con, at, ok):
+    con.execute(
+        """UPDATE worker_health SET
+        last_reconciled=CASE WHEN ? THEN ? ELSE last_reconciled END,
+        failures=CASE WHEN ? THEN 0 ELSE failures+1 END WHERE singleton=1""",
+        (ok, at, ok),
+    )

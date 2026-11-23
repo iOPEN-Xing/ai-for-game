@@ -304,7 +304,10 @@ function memoryPage(m, skills) {
               h(k.confidence) +
               ' · ' +
               date(k.created) +
-              '</small><details><summary>原始结算证据</summary>' +
+              '</small>' +
+              (k.reviewed_at ? '<p>审核于 ' + date(k.reviewed_at) + (k.review_note ? ' · ' + h(k.review_note) : '') +
+                (k.replacement ? ' · 替代记录 ' + h(k.replacement) : '') + '</p>' : '') +
+              '<details><summary>原始结算证据</summary>' +
               kv(k.evidence) +
               '</details>' +
               (k.status === 'pending'

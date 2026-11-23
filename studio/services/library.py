@@ -57,7 +57,7 @@ def memory():
 
 def review_memory(kid, body: KnowledgeVerdict):
     with db(True) as con:
-        review.review_knowledge(con, kid, body.accept, body.supersede)
+        review.review_knowledge(con, kid, body.accept, body.supersede, body.note)
     return {"saved": True}
 
 

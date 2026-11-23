@@ -11,7 +11,7 @@ from studio.domain.revision import NEXT, STEPS
 from studio.infra.repositories import games as games_db
 from studio.infra.repositories import proposals as proposals_db
 from studio.infra.repositories import revisions as revisions_db
-from studio.infra.store import db, encode, log
+from studio.infra.store import Problem, db, encode, log
 from studio.services.production_nodes import prepare_request, produce_artifact
 from studio.services.revisions import checkpoint
 from studio.settings import BASE_RULES
@@ -48,7 +48,15 @@ async def produce(rev_id, stage):
                 bundle, proof = await build_revision(revision, docs)
             except (ValueError, TypeError, KeyError, quickjs.JSException) as exc:
                 return await repair_build(revision, docs, "构建回归：" + str(exc)[:400])
-            checkpoint(rev_id, stage, key, proof, "构建服务", bundle=bundle)
+            checkpoint(
+                rev_id,
+                stage,
+                key,
+                proof,
+                "构建服务",
+                bundle=bundle,
+                serial=revision["serial"],
+            )
             docs[key] = proof
             continue
         role, schema, data = await prepare_request(key, revision, docs, prior, context)
@@ -59,7 +67,7 @@ async def produce(rev_id, stage):
             return await repair_build(
                 revision, docs, "独立评审：" + "；".join(value["blockers"])
             )
-        checkpoint(rev_id, stage, key, value, role, provider)
+        checkpoint(rev_id, stage, key, value, role, provider, serial=revision["serial"])
         docs[key] = value
     advance_stage(revision, stage)
 
@@ -68,6 +76,9 @@ async def stage_context(revision, game, docs, prior, proposal):
     stage, rev_id = revision["stage"], revision["id"]
     if "context_snapshot" not in docs:
         with db(True) as con:
+            current = revisions_db.delivery(con, rev_id)
+            if current["serial"] != revision["serial"] or current["stage"] != stage:
+                raise Problem("任务已被新版本取代")
             docs["context_snapshot"] = project_context.capture(con, revision["game"])
             revisions_db.save_docs(con, encode(docs), rev_id)
     snapshot = docs["context_snapshot"]
@@ -99,6 +110,7 @@ async def stage_context(revision, game, docs, prior, proposal):
 
 async def apply_impact(revision, docs, context):
     rev_id = revision["id"]
+    existing_entities = [s["id"] for s in docs.get("art", {}).get("sprites", [])]
     impact, provider = await agents.consult(
         "Producer",
         agents.Impact,
@@ -107,12 +119,14 @@ async def apply_impact(revision, docs, context):
             "request": docs["impact_request"],
             "available": list(docs),
             "design": docs.get("gdd"),
-            "entities": [s["id"] for s in docs.get("art", {}).get("sprites", [])],
+            "entities": existing_entities,
         },
     )
     affected = set(impact["affected"])
-    if impact["entities"]:
-        affected.update(("gdd", "art", "game_code"))
+    if impact["entities"] or impact["audio"]:
+        affected.add("art")
+    if set(impact["entities"]).difference(existing_entities):
+        affected.update(("gdd", "game_code"))
     if "levels" in affected:
         affected.add("level_code")
     if "art" in affected:
@@ -127,7 +141,10 @@ async def apply_impact(revision, docs, context):
     docs["impact"] = impact
     docs.pop("impact_request", None)
     with db(True) as con:
-        revisions_db.invalidate_design(con, encode(docs), rev_id)
+        if not revisions_db.invalidate_design(
+            con, encode(docs), rev_id, revision["serial"]
+        ):
+            raise Problem("任务已被新版本取代")
         log(
             con,
             revision["game"],
@@ -158,7 +175,7 @@ def advance_stage(revision, stage):
     rev_id = revision["id"]
     with db(True) as con:
         cur = revisions_db.delivery(con, rev_id)
-        if cur["stage"] != stage:
+        if cur["stage"] != stage or cur["serial"] != revision["serial"]:
             return
         if not all(k in json.loads(cur["docs"]) for k in STEPS[stage]) or (
             stage == "build" and not cur["bundle"]
@@ -204,6 +221,9 @@ async def repair_build(rev, docs, diagnostic):
         "sources": sources,
     }
     with db(True) as con:
-        revisions_db.invalidate_repair(con, encode(docs), rev["id"])
+        if not revisions_db.invalidate_repair(
+            con, encode(docs), rev["id"], rev["serial"]
+        ):
+            raise Problem("任务已被新版本取代")
         log(con, rev["game"], rev["id"], "质量评审", diagnostic, "repair")
     await produce(rev["id"], "build")

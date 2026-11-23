@@ -16,7 +16,7 @@ from studio.infra.repositories import evidence as evidence_db
 from studio.infra.repositories import games as games_db
 from studio.infra.repositories import proposals as proposals_db
 from studio.infra.repositories import revisions as revisions_db
-from studio.infra.store import Problem, db, encode, log
+from studio.infra.store import Problem, db, encode, log, now
 from studio.services import debate, revisions
 from studio.services.evidence import frozen_evidence
 from studio.settings import METRICS
@@ -48,7 +48,9 @@ async def analyze(pid):
             proposals_db.save_checkpoint(con, encode(checkpoint), pid)
     if "memory" not in evidence:
         with db(True) as con:
-            evidence["memory"] = project_context.capture(con, g["id"])
+            evidence["memory"] = project_context.capture(
+                con, g["id"], evidence["period"][1]
+            )
             proposals_db.save_evidence(con, encode(evidence), pid)
     snapshot = evidence["memory"]
     binding = await skillbook.pin("proposal:" + snapshot["id"], p["kind"])
@@ -181,6 +183,10 @@ def review_proposal(con, pid, accept, note):
                     .get("values", {}),
                 )
             target = {"game": gid, "rev": rid}
+    if not accept:
+        evidence_db.record_dead_end(
+            con, pid, now(), bet["title"], note.strip() or "团队驳回，未填写理由。"
+        )
     proposals_db.set_status(con, "production" if accept else "rejected", pid)
     log(
         con,
@@ -193,7 +199,7 @@ def review_proposal(con, pid, accept, note):
     return target
 
 
-def review_knowledge(con, kid, accept, supersede=()):
+def review_knowledge(con, kid, accept, supersede=(), note=""):
     k = evidence_db.get_knowledge(con, kid)
     if k["status"] != "pending":
         raise Problem("知识已评审")
@@ -211,7 +217,15 @@ def review_knowledge(con, kid, accept, supersede=()):
         if accept
         else "rejected"
     )
-    evidence_db.set_knowledge_status(con, status, kid)
-    if accept and evidence["attribution"] == "假设错":
-        for prior in supersede:
-            evidence_db.supersede_knowledge(con, prior, k["game"])
+    if supersede and status != "active":
+        raise Problem("只有采纳的已验证记录能替代旧知识")
+    for prior in set(supersede):
+        entry = evidence_db.get_knowledge(con, prior)
+        if entry["game"] != k["game"] or entry["status"] != "active":
+            raise Problem("待替代的知识已失效或属于其他项目，请刷新后复核")
+    at = now()
+    evidence_db.record_knowledge_review(con, kid, status, at, note.strip())
+    for prior in sorted(set(supersede)):
+        evidence_db.record_knowledge_review(
+            con, prior, "superseded", at, note.strip(), kid
+        )

@@ -125,8 +125,28 @@ class ExperimentsTests(StudioCase):
         self.assertEqual(self.get("games/" + self.game)["game"]["live"], e["treatment"])
         k = self.get("memory")["entries"][0]
         self.assertEqual(k["status"], "pending")
-        self.post("knowledge/" + k["id"] + "/review", {"accept": True})
+        from studio import context
+        from studio.infra.repositories import evidence
+        from studio.services import review
+
+        with patch.object(review, "now", return_value=e["due"] + 10):
+            self.post(
+                "knowledge/" + k["id"] + "/review",
+                {"accept": True, "note": "限当前版本和样本"},
+            )
         self.assertEqual(self.get("memory")["entries"][0]["status"], "active")
+        with db() as con:
+            self.assertEqual(evidence.comparable_knowledge(con, e["due"] + 5), [])
+            (learned,) = evidence.comparable_knowledge(con, e["due"] + 11)
+            self.assertEqual(learned["id"], k["id"])
+            self.assertIn(settled["result"]["tested_change"], learned["text"])
+            future = context.capture(con, self.game, e["due"] + 11)
+            self.assertEqual(
+                context.memory_for("Analyst", future)["approved_knowledge"][0][
+                    "review_note"
+                ],
+                "限当前版本和样本",
+            )
 
     def test_confounded_and_sparse_experiments_stay_unverified(self):
         e = self.iteration()

@@ -215,10 +215,13 @@ def find_design(con, revision_id):
     return one(con, "SELECT docs FROM revisions WHERE id=?", revision_id)
 
 
-def invalidate_design(con, docs, revision_id):
-    con.execute(
-        "UPDATE revisions SET docs=?,bundle=NULL WHERE id=? AND stage='design'",
-        (docs, revision_id),
+def invalidate_design(con, docs, revision_id, serial):
+    return (
+        con.execute(
+            "UPDATE revisions SET docs=?,bundle=NULL WHERE id=? AND stage='design' AND serial=?",
+            (docs, revision_id, serial),
+        ).rowcount
+        == 1
     )
 
 
@@ -226,15 +229,36 @@ def current_notes(con, revision_id):
     return need(con, "SELECT notes FROM revisions WHERE id=?", revision_id)
 
 
-def stream_research(con, summary, revision_id):
+def stream_research(con, summary, revision_id, serial):
     con.execute(
-        "UPDATE revisions SET docs=json_set(docs,'$.research_draft',?) WHERE id=? AND stage='interpret'",
-        (summary, revision_id),
+        """INSERT INTO revision_drafts(rev,serial,summary)
+        SELECT id,serial,? FROM revisions WHERE id=? AND stage='interpret' AND serial=?
+        ON CONFLICT(rev) DO UPDATE SET serial=excluded.serial,summary=excluded.summary
+        WHERE revision_drafts.serial!=excluded.serial OR revision_drafts.summary!=excluded.summary""",
+        (summary[:2400], revision_id, serial),
     )
 
 
+def progress(con, revision_id):
+    return need(
+        con,
+        """SELECT r.stage, r.serial, d.summary, j.state AS job_state, j.attempts,
+        (SELECT max(id) FROM history WHERE rev=r.id) AS history_id
+        FROM revisions r LEFT JOIN revision_drafts d ON d.rev=r.id AND d.serial=r.serial AND r.stage='interpret'
+        LEFT JOIN jobs j ON j.kind='production' AND j.target=r.id AND j.stage=r.stage
+        WHERE r.id=?""",
+        revision_id,
+    )
+
+
+def clear_draft(con, revision_id):
+    con.execute("DELETE FROM revision_drafts WHERE rev=?", (revision_id,))
+
+
 def delivery(con, revision_id):
-    return need(con, "SELECT docs,bundle,stage FROM revisions WHERE id=?", revision_id)
+    return need(
+        con, "SELECT docs,bundle,stage,serial FROM revisions WHERE id=?", revision_id
+    )
 
 
 def finish_stage(con, stage, revision_id):
@@ -243,10 +267,13 @@ def finish_stage(con, stage, revision_id):
     )
 
 
-def invalidate_repair(con, docs, revision_id):
-    con.execute(
-        "UPDATE revisions SET docs=?,bundle=NULL WHERE id=? AND stage='build'",
-        (docs, revision_id),
+def invalidate_repair(con, docs, revision_id, serial):
+    return (
+        con.execute(
+            "UPDATE revisions SET docs=?,bundle=NULL WHERE id=? AND stage='build' AND serial=?",
+            (docs, revision_id, serial),
+        ).rowcount
+        == 1
     )
 
 

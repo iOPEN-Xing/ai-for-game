@@ -256,15 +256,15 @@ export function bindActions({ refresh, decide, listeners }) {
         const approved = action === 'know-yes';
         const candidates = approved && entry.evidence.attribution === '假设错'
           ? state.memoryData.entries.filter(k => entry.evidence.citations?.includes(k.id) && k.game === entry.game && k.status === 'active') : [];
-        if (candidates.length) {
-          form('采纳结算记录', '<fieldset><legend>本次证据推翻了哪些已有结论？</legend>' +
-            candidates.map(k => '<label><input type="checkbox" name="prior" value="' + h(k.id) + '"> ' + h(k.text) + '</label>').join('') +
-            '</fieldset>', '保存评审', async f => {
-              await api(endpoint('review_memory', {kid: id}), {accept: true, supersede: f.getAll('prior')}); await refresh();
-            });
-        } else {
-          await api(endpoint('review_memory', {kid: id}), {accept: approved}); await refresh();
-        }
+        const choices = candidates.length ? '<fieldset><legend>本次证据推翻了哪些已有结论？</legend>' +
+          candidates.map(k => '<label><input type="checkbox" name="prior" value="' + h(k.id) + '"> ' + h(k.text) + '</label>').join('') +
+          '</fieldset>' : '';
+        form(approved ? '采纳结算记录' : '驳回结算记录', choices +
+          '<label>审核意见<textarea name="note" maxlength="1000" placeholder="说明依据或适用范围"></textarea></label>',
+          '保存评审', async f => {
+            await api(endpoint('review_memory', {kid: id}), {accept: approved, supersede: f.getAll('prior'), note: f.get('note')});
+            await refresh();
+          });
       }
     } catch (err) {
       if (dialog.open && $('#form-error')) $('#form-error').textContent = err.message;

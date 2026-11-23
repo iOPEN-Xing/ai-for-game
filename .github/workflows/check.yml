@@ -29,12 +29,7 @@ jobs:
           python -m pip install --only-binary=:all: -c requirements-linux.lock -r requirements.txt
           python -m pip install ruff==0.17.6
       - name: Verify code, contracts and offline workflows
-        run: |
-          ruff check app.py studio scripts tests
-          ruff format --check app.py studio scripts tests
-          python -m scripts.sync_web_routes --check
-          find studio/web studio/engine -name '*.js' -exec sh -ec 'for f do node --input-type=module --check <"$f"; done' sh {} +
-          python -m unittest discover -s tests -v
+        run: python -m scripts.check
       - name: Start the application and public gateway
         run: |
           cp .env.example .env

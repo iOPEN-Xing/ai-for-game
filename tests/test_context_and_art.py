@@ -176,7 +176,7 @@ class ContextAndArtTests(unittest.TestCase):
             return httpx.Response(
                 200,
                 headers={"content-type": "text/event-stream"},
-                text="data: " + frame + "\n\n",
+                text="data: " + frame + "\n\ndata: [DONE]\n\n",
             )
 
         real = httpx.Client
@@ -212,3 +212,10 @@ class ContextAndArtTests(unittest.TestCase):
             )
             self.assertEqual(requests[0]["tools"][0]["model"], "gpt-image-2")
             self.assertNotIn("fixture-art", json.dumps(lit))
+            # A valid PNG from another request is insufficient evidence for a cache hit.
+            cache = images.folder() / (base["request_hash"] + ".json")
+            cache.write_text(json.dumps(lit))
+            before = len(requests)
+            regenerated = images.render({"entity": "beacon"}, None)
+            self.assertEqual(regenerated["request_hash"], base["request_hash"])
+            self.assertEqual(len(requests), before + 1)

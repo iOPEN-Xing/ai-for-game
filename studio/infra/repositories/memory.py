@@ -30,21 +30,30 @@ def create_editor(con, subject):
     con.execute("INSERT INTO preferences VALUES('editor',?,0,'{}')", (subject,))
 
 
-def active_knowledge(con, game_id):
+def active_knowledge(con, game_id, cutoff=None):
     return rows(
         con,
-        """SELECT id,text,grade,confidence FROM knowledge WHERE game=? AND status='active'
-        ORDER BY confidence DESC,created DESC LIMIT 8""",
+        """SELECT k.id,k.text,k.grade,k.confidence,a.admitted,a.note AS review_note
+        FROM knowledge k JOIN knowledge_admissions a ON a.entry=k.id
+        WHERE k.game=? AND ((? IS NULL AND a.withdrawn IS NULL) OR
+            (a.admitted<? AND (a.withdrawn IS NULL OR a.withdrawn>=?)))
+        ORDER BY k.confidence DESC,k.created DESC,k.id LIMIT 8""",
         game_id,
+        cutoff,
+        cutoff,
+        cutoff,
     )
 
 
-def past_decisions(con, game_id):
+def past_decisions(con, game_id, cutoff=None):
     return rows(
         con,
         """SELECT id,rev,role,substr(text,1,650) text,at FROM history
-        WHERE game=? AND kind IN ('review','comment','gate','preference') ORDER BY id DESC LIMIT 8""",
+        WHERE game=? AND (? IS NULL OR at<?) AND kind IN ('review','comment','gate','preference')
+        ORDER BY id DESC LIMIT 8""",
         game_id,
+        cutoff,
+        cutoff,
     )
 
 
@@ -65,10 +74,12 @@ def input_snapshot(con, run_id, node, fingerprint):
     )
 
 
-def prompt_snapshot(con, run_id, node):
+def prompt_snapshot(con, run_id, node, role=None):
     return need(
         con,
-        "SELECT role,prompt FROM agent_prompts WHERE run=? AND node=?",
+        "SELECT role,prompt FROM agent_prompts WHERE run=? AND node=? AND (? IS NULL OR role=?)",
         run_id,
         node,
+        role,
+        role,
     )

@@ -3,9 +3,16 @@
 import unicodedata
 from typing import Annotated, Literal
 
-from pydantic import Field, FiniteFloat, model_validator
+from pydantic import (
+    Field,
+    FiniteFloat,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from studio.domain.agent_outputs import Bet, Detail, Opinion, Output, Short
+from studio.domain.evidence_sources import visible_sources
 
 PROTOCOL = 3
 
@@ -24,6 +31,18 @@ class Constraints(CitedOpinion):
 class DeadEndAudit(CitedOpinion):
     examined: list[Short] = Field(max_length=12)
     definition_check: Detail
+
+    @field_validator("examined")
+    @classmethod
+    def audited_ids(cls, value, info: ValidationInfo):
+        evidence = info.context or {}
+        if "dead_ends" in evidence and sorted(value) != sorted(
+            k["id"] for k in evidence["dead_ends"]
+        ):
+            raise ValueError(
+                "examined 只填冻结死路清单中的原始 ID，逐条列全。说明写入 definition_check"
+            )
+        return value
 
 
 class Candidate(Output):
@@ -186,16 +205,6 @@ def feedback_summary(records):
         {"level": level, "rating": rating, "responses": n}
         for (level, rating), n in counts.items()
     ]
-
-
-def visible_sources(role: str, evidence) -> list[str]:
-    restricted = (
-        set() if role in ("Engineer", "Reviewer") else {"game.js", "level-generator.js"}
-    )
-    restricted.update(
-        item["id"] for item in evidence.get("feedback", []) if "id" in item
-    )
-    return [source for source in evidence["sources"] if source not in restricted]
 
 
 def validate_candidates(options, sources) -> None:

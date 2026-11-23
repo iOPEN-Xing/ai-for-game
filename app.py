@@ -21,11 +21,12 @@ from studio.api import (
     pages,
 )
 from studio.infra.store import init
-from studio.settings import ROOT, WEB, validate_runtime
+from studio.settings import ROOT, WEB, deployed, load_environment, validate_runtime
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    load_environment()
     validate_runtime()
     init()
     task = asyncio.create_task(worker.serve(), name="studio-worker")
@@ -70,8 +71,9 @@ def create_app() -> FastAPI:
 app = create_app()
 
 if __name__ == "__main__":
+    load_environment()
     uvicorn.run(
         app,
-        host="0.0.0.0" if os.getenv("STUDIO_DEPLOYED") == "1" else "127.0.0.1",
+        host="0.0.0.0" if deployed() else "127.0.0.1",
         port=int(os.getenv("PORT", "7860")),
     )

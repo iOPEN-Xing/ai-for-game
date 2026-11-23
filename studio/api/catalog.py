@@ -1,9 +1,14 @@
+import asyncio
+import json
+import time
+
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from studio.api.auth import admin, editor_identity
 from studio.domain.commands import Campaign, Decision, Idea, Note, PreferenceUpdate
-from studio.services import catalog
+from studio.infra.store import Problem
+from studio.services import catalog, progress
 
 router = APIRouter(dependencies=[Depends(admin)])
 
@@ -61,3 +66,43 @@ def decision(rid, body: Decision):
 @router.post("/api/revisions/{rid}/note")
 def note(rid, body: Note):
     return catalog.note(rid, body)
+
+
+@router.get("/api/revisions/{rid}/events", response_class=StreamingResponse)
+async def revision_events(rid: str, request: Request, session=Depends(admin)):
+    first = await asyncio.to_thread(progress.snapshot, rid, session)
+
+    async def updates():
+        previous = request.headers.get("last-event-id")
+        current = first
+        heartbeat = started = time.monotonic()
+        yield "retry: 2000\n\n"
+        while True:
+            cursor, state = current
+            if cursor != previous or state["terminal"]:
+                yield f"id: {cursor}\nevent: progress\ndata: {json.dumps(state, ensure_ascii=False)}\n\n"
+                previous = cursor
+            if state["terminal"] or time.monotonic() - started >= 60:
+                return
+            if time.monotonic() - heartbeat >= 12:
+                yield ": heartbeat\n\n"
+                heartbeat = time.monotonic()
+            await asyncio.sleep(1)
+            if await request.is_disconnected():
+                return
+            try:
+                current = await asyncio.to_thread(progress.snapshot, rid, session)
+            except Problem as exc:
+                if exc.status != 401:
+                    raise
+                yield "event: session_closed\ndata: {}\n\n"
+                return
+
+    return StreamingResponse(
+        updates(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )

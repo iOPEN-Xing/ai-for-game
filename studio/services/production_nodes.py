@@ -71,18 +71,34 @@ async def prepare_request(key, revision, docs, prior, context):
                 queries = docs["visual_analysis"]["queries"]
                 rules = {
                     "queries": queries,
-                    "items": await research.rule_sources(queries),
+                    **await research.rule_sources(queries),
                 }
-                checkpoint(rev_id, stage, "rule_sources", rules, "检索服务")
+                checkpoint(
+                    rev_id,
+                    stage,
+                    "rule_sources",
+                    rules,
+                    "检索服务",
+                    serial=revision["serial"],
+                )
                 docs["rule_sources"] = rules
             data["rule_sources"] = docs["rule_sources"]["items"]
+            data["rule_search"] = {
+                k: v for k, v in docs["rule_sources"].items() if k != "items"
+            }
+            data["rule_search"].setdefault("status", "legacy")
             data["indexed_playable_references"] = REFERENCE
 
             def stream_summary(summary):
                 with db(True) as con:
-                    revisions_db.stream_research(con, summary, rev_id)
+                    revisions_db.stream_research(
+                        con, summary, rev_id, revision["serial"]
+                    )
 
-            data["_on_summary"] = stream_summary
+            async def publish_summary(summary):
+                await asyncio.to_thread(stream_summary, summary)
+
+            data["_on_summary"] = publish_summary
     elif key == "gdd":
         role, schema = "Planner", agents.Design
         data["level_parameter_contract"] = cartridge.CURVE_ABI
@@ -189,16 +205,28 @@ async def produce_artifact(key, role, schema, data, revision, game, docs):
                 touched = {c["entity"] for c in checks if c["kind"] == "asset"} or set(
                     (docs.get("impact") or {}).get("entities", [])
                 )
-                if data.get("previous_art") and touched:
+                impact = docs.get("impact") or {}
+                if data.get("previous_art") and (
+                    touched or (impact.get("audio") and impact.get("audio_tracks"))
+                ):
                     value = image_service.merge_assets(
                         data["previous_art"],
                         value,
                         touched,
-                        (docs.get("impact") or {}).get("audio", False),
+                        impact.get("audio", False),
+                        impact.get("audio_tracks"),
                     )
                 if "art_references" in data:
                     value["research_references"] = data["art_references"]
-                checkpoint(rev_id, stage, "art_spec", value, role, provider)
+                checkpoint(
+                    rev_id,
+                    stage,
+                    "art_spec",
+                    value,
+                    role,
+                    provider,
+                    serial=revision["serial"],
+                )
                 docs["art_spec"] = value
             await image_service.materialize(value)
         try:
@@ -213,7 +241,14 @@ async def produce_artifact(key, role, schema, data, revision, game, docs):
                         **feedback.get("sources", {}),
                         key: value["source"],
                     }
-                    checkpoint(rev_id, stage, "build_feedback", feedback, "构建服务")
+                    checkpoint(
+                        rev_id,
+                        stage,
+                        "build_feedback",
+                        feedback,
+                        "构建服务",
+                        serial=revision["serial"],
+                    )
                 raise ValueError(
                     DOCS[key] + "未通过构建检查：" + str(exc)[:250]
                 ) from None
@@ -246,6 +281,7 @@ async def validate_artifact(key, data, value, revision, game, docs):
         research.attach(value["directions"], data["selected_references"])
         value["visual_observations"] = docs["visual_analysis"]["observations"]
         value["rule_sources"] = data["rule_sources"]
+        value["rule_search"] = data["rule_search"]
     elif key == "levels":
         family = data["selected_direction"]["mechanic"]
         if value["game_type"] != family or (

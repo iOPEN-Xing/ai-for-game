@@ -41,6 +41,7 @@ const paths = Object.freeze({
   "retry_proposal": "/api/proposals/{pid}/retry",
   "review_memory": "/api/knowledge/{kid}/review",
   "review_proposal": "/api/proposals/{pid}/review",
+  "revision_events": "/api/revisions/{rid}/events",
   "sample": "/sample",
   "show_hint": "/api/rounds/{token}/hint",
   "skills": "/api/skills",

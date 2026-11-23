@@ -251,7 +251,7 @@ function gate(d) {
   } else {
     title = state.overview.stages[s] + '进行中';
     body =
-      '<p>' + h(s === 'interpret' && r.docs.research_draft ? r.docs.research_draft : '后台正在生成本阶段的交付物。') + '</p><span class="pill">后台任务 · ' +
+      '<p id="research-progress">' + h(s === 'interpret' && r.docs.research_draft ? r.docs.research_draft : '后台正在生成本阶段的交付物。') + '</p><span class="pill">后台任务 · ' +
       h(d.job?.state === 'queued' ? '已排队' : '执行中') +
       '</span>';
   }

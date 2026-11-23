@@ -246,3 +246,67 @@ class ProductionTests(StudioCase):
         self.decision("accept", 409)
         self.play(preview=self.rev)
         self.decision("accept")
+
+    def test_audio_only_revision_reuses_sprites_code_and_other_audio(self):
+        self.draft()
+        before = self.get("games/" + self.game)["revision"]["docs"]
+        self.decision("revise", target="auto", note="仅改 UI 点击音")
+        called = []
+
+        async def audio_edit(role, schema, data):
+            called.append(role)
+            if schema is agents.Impact:
+                return {
+                    "reason": "只改点击音",
+                    "affected": ["art"],
+                    "entities": [],
+                    "audio": True,
+                    "audio_tracks": ["ui"],
+                }, "fixture"
+            value, provider = await scripted(role, schema, data)
+            if role == "ArtDesigner":
+                value["melody"] = {key: [9, 6, 2] for key in value["melody"]}
+                value["tempo"] = 150
+                value["sprites"][0]["title"] = "未请求的视觉编辑"
+            return value, provider
+
+        with patch.object(agents, "consult", side_effect=audio_edit):
+            self.work()
+        after = self.get("games/" + self.game)["revision"]["docs"]
+        previous, current = before["art"], after["art"]
+        for key in ("sprites", "tempo", "root_hz", "background", "style"):
+            self.assertEqual(current[key], previous[key])
+        self.assertEqual(current["melody"], {**previous["melody"], "ui": [9, 6, 2]})
+        for key in ("gdd", "levels", "game_code", "level_code"):
+            self.assertEqual(before[key], after[key])
+        self.assertFalse(
+            {"Planner", "LevelDesigner", "LevelCoder", "GameCoder"}.intersection(called)
+        )
+
+    def test_repainting_existing_entity_reuses_design_and_logic(self):
+        self.draft()
+        before = self.get("games/" + self.game)["revision"]["docs"]
+        self.decision("revise", target="auto", note="只重绘塔的贴图")
+
+        async def repaint(role, schema, data):
+            if schema is agents.Impact:
+                return {
+                    "reason": "塔的视觉变化",
+                    "affected": ["art"],
+                    "entities": ["tower"],
+                    "audio": False,
+                    "audio_tracks": [],
+                }, "fixture"
+            value, provider = await scripted(role, schema, data)
+            if role == "ArtDesigner":
+                value["sprites"][0]["title"] = "白塔"
+            return value, provider
+
+        with patch.object(agents, "consult", side_effect=repaint):
+            self.work()
+        after = self.get("games/" + self.game)["revision"]["docs"]
+        self.assertEqual(after["art"]["sprites"][0]["title"], "白塔")
+        self.assertEqual(after["art"]["sprites"][1:], before["art"]["sprites"][1:])
+        self.assertEqual(after["art"]["melody"], before["art"]["melody"])
+        for key in ("gdd", "levels", "game_code", "level_code"):
+            self.assertEqual(before[key], after[key])

@@ -1,7 +1,7 @@
 """Validated game-production and operations deliverables."""
 
 import re
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import (
     BaseModel,
@@ -49,6 +49,24 @@ class Impact(Output):
         Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,30}$")]
     ] = Field(max_length=6)
     audio: bool
+    audio_tracks: list[Literal["bgm", "hit", "miss", "win", "ui"]] | None = Field(
+        default=None, max_length=5
+    )
+    # v1.0 persisted this schema without audio_tracks. Its pinned prompts remain valid.
+    compatible_schema_hashes: ClassVar = frozenset(
+        {"ec8544a607eed56cdd86d0d8dbc399dbb3932a16fe313a36b1ef1c771a17e389"}
+    )
+
+    @model_validator(mode="after")
+    def changed_tracks(self):
+        if self.audio_tracks is not None and (
+            bool(self.audio_tracks) != self.audio
+            or len(set(self.audio_tracks)) != len(self.audio_tracks)
+        ):
+            raise ValueError(
+                "audio_tracks 须逐项列出有修改的音轨，无音频修改时填空列表"
+            )
+        return self
 
 
 class Direction(Output):

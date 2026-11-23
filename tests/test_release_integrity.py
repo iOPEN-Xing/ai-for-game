@@ -56,10 +56,21 @@ class ReleaseIntegrityTests(StudioCase):
                 }
             ],
         )
-        old["sources"] = [*old["sources"], "old-rating"]
+        old["supplement"] = "团队核对了首关奖励"
+        old["unreleased_plan"] = "尚未发布的内部字段"
+        old["sources"] = [
+            *old["sources"],
+            "old-rating",
+            "supplement",
+            "unreleased_plan",
+        ]
         view = context.evidence_for("GameDesigner", old)
         self.assertNotIn("PRIVATE-PLAYER-TEXT", json.dumps(view))
         self.assertNotIn("old-rating", view["sources"])
+        self.assertNotIn("unreleased_plan", view)
+        self.assertNotIn("unreleased_plan", view["sources"])
+        self.assertEqual(view["supplement"], old["supplement"])
+        self.assertIn("supplement", view["sources"])
         doc = proposal["doc"]
         doc["GameDesigner"]["candidates"][0]["evidence"] = "game.js"
         with db(True) as con:

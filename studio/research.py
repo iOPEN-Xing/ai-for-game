@@ -4,7 +4,6 @@ import asyncio
 import base64
 import hashlib
 import io
-import os
 from urllib.parse import urlsplit
 
 import httpx
@@ -13,7 +12,7 @@ from PIL import Image
 from studio.infra.repositories import evidence as evidence_db
 from studio.infra.store import db
 
-from .settings import ROOT, WEB
+from .settings import ROOT, WEB, research_online
 
 COMMONS = "https://commons.wikimedia.org/w/api.php"
 HEADERS = {"User-Agent": "LoopAtelier/1.0 (game reference research; Wikimedia API)"}
@@ -114,10 +113,6 @@ def attach(directions, references):
         d["references"] = [registry[i] for i in ids]
 
 
-def online():
-    return os.getenv("STUDIO_RESEARCH_ONLINE", "1") != "0"
-
-
 async def pages(client, url, query, **params):
     result = await client.get(
         url,
@@ -140,10 +135,31 @@ async def pages(client, url, query, **params):
     )
 
 
+def search_outcome(attempted, succeeded, count):
+    if not attempted:
+        status = "offline"
+    elif not succeeded:
+        status = "unavailable"
+    elif succeeded < attempted:
+        status = "partial"
+    else:
+        status = "complete" if count else "empty"
+    return {
+        "status": status,
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "results": count,
+    }
+
+
 async def discover(queries, brief):
     local = retrieve(brief)
-    if not online():
-        return {"references": local, "search_status": "本地资料库"}
+    if not research_online():
+        return {
+            "references": local,
+            "search_status": "本地资料库",
+            "search": search_outcome(0, 0, 0),
+        }
     async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
         results = await asyncio.gather(
             *(
@@ -183,13 +199,14 @@ async def discover(queries, brief):
     available = sum(not isinstance(r, BaseException) for r in results)
     return {
         "references": refs[:20],
+        "search": search_outcome(len(results), available, len(collected)),
         "search_status": f"公共检索 {available}/{len(queries)} 路返回，找到 {len(collected)} 条图像记录",
     }
 
 
 async def rule_sources(queries):
-    if not online():
-        return []
+    if not research_online():
+        return {"items": [], **search_outcome(0, 0, 0)}
     async with httpx.AsyncClient(headers=HEADERS, timeout=10) as client:
         batches = await asyncio.gather(
             *(
@@ -218,7 +235,11 @@ async def rule_sources(queries):
                     "source": page["fullurl"],
                     "extract": page["extract"][:900],
                 }
-    return list(articles.values())[:5]
+    available = sum(not isinstance(batch, BaseException) for batch in batches)
+    return {
+        "items": list(articles.values())[:5],
+        **search_outcome(len(batches), available, len(articles)),
+    }
 
 
 async def image_input(ref):
@@ -245,6 +266,8 @@ async def image_input(ref):
                 if len(raw) > 8_000_000:
                     raise ValueError("所选参考图超过大小限制")
     with Image.open(io.BytesIO(raw)) as img:
+        if img.width * img.height > 16_000_000:
+            raise ValueError("参考图超过像素预算")
         img.thumbnail((700, 700))
         output = io.BytesIO()
         img.convert("RGB").save(output, format="JPEG", quality=82)

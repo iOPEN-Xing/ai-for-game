@@ -5,9 +5,22 @@ import { parts, state } from './modules/state.js';
 import { names } from './modules/labels.js';
 import { home, project, projects } from './modules/project-views.js';
 import { memoryPage, operationsPage } from './modules/operations-views.js';
+import { watchRevision } from './modules/revision-stream.js';
 import { bindActions } from './modules/actions.js';
 
-let routeVersion = 0, timer = null;
+let routeVersion = 0, timer = null, stopWatching = () => {};
+
+function refreshWhenIdle(seq, delay) {
+  if (seq !== routeVersion) return;
+  clearTimeout(timer);
+  const check = () => {
+    if (seq !== routeVersion) return;
+    if (dialog.open || document.activeElement?.matches('input,textarea,select'))
+      timer = setTimeout(check, 1000);
+    else refresh(true);
+  };
+  timer = setTimeout(check, delay);
+}
 
 const tab = () => parts()[0] || 'home';
 
@@ -103,6 +116,8 @@ async function refresh(poll = false) {
     route = parts(),
     page = route[0] || 'home';
   clearTimeout(timer);
+  stopWatching();
+  stopWatching = () => {};
   let again = false;
   try {
     const snapshot = await api(endpoint('overview'));
@@ -133,6 +148,11 @@ async function refresh(poll = false) {
         state.current.revision.docs.research_draft === d.revision.docs.research_draft;
       state.current = d;
       if (!skip) html = project(d);
+      if (again) {
+        again = false;
+        stopWatching = watchRevision(d, () => refreshWhenIdle(seq, 0),
+          () => { if (seq === routeVersion) login(); }, () => refreshWhenIdle(seq, 2500));
+      }
     } else if (page === 'ops') {
       state.opsGame = route[1] && route[1] !== 'all' ? route[1] : '';
       const query = new URLSearchParams();
@@ -179,15 +199,7 @@ async function refresh(poll = false) {
       again = poll;
     }
   } finally {
-    if (again && seq === routeVersion) {
-      const whenIdle = () => {
-        if (seq !== routeVersion) return;
-        if (dialog.open || document.activeElement?.matches('input,textarea,select'))
-          timer = setTimeout(whenIdle, 2500);
-        else refresh(true);
-      };
-      timer = setTimeout(whenIdle, 2500);
-    }
+    if (again && seq === routeVersion) refreshWhenIdle(seq, 2500);
   }
 }
 

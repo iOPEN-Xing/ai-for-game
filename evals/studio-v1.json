@@ -1,0 +1,38 @@
+{
+  "version": "studio-v1.1",
+  "attribution": [
+    {"id":"wrong-delivery-first","metric":"win_rate","delivery_ok":false,"confounded":true,"arms":{},"expected":{"attribution":"执行错","grade":"未验证推断","delta":null}},
+    {"id":"confounded-entry","metric":"action_rate","confounded":true,"arms":{},"expected":{"attribution":"方法错","grade":"未验证推断","delta":null}},
+    {"id":"not-enough-returners","metric":"d1_rate","arms":{"control":{"players":80,"d1_eligible":19,"d1_returned":18},"treatment":{"players":90,"d1_eligible":20,"d1_returned":20}},"expected":{"attribution":"方法待验证","sample_basis":"d1_eligible","grade":"未验证推断"}},
+    {"id":"tiny-click-increase","metric":"action_rate","arms":{"control":{"action_visitors":40,"action_players":3},"treatment":{"action_visitors":40,"action_players":4}},"expected":{"attribution":"方法待验证","inference_method":"newcombe_95_pp","delta":2.5}},
+    {"id":"verified-click-increase","metric":"action_rate","arms":{"control":{"action_visitors":2000,"action_players":400},"treatment":{"action_visitors":2000,"action_players":600}},"expected":{"attribution":"命中预期","sample_basis":"action_visitors","grade":"现象","delta":10.0}},
+    {"id":"returners-below-falsifier","metric":"d1_rate","arms":{"control":{"d1_eligible":2000,"d1_returned":800},"treatment":{"d1_eligible":2000,"d1_returned":200}},"expected":{"attribution":"假设错","sample_basis":"d1_eligible","delta":-30.0}},
+    {"id":"forecast-overshoot","metric":"win_rate","arms":{"control":{"players":100,"win_rate":15},"treatment":{"players":120,"win_rate":70}},"expected":{"attribution":"方法待验证","grade":"现象","inference_method":"descriptive","delta":55}},
+    {"id":"threshold-equality","metric":"rounds_per_player","bounds":[1,2],"arms":{"control":{"players":20,"rounds_per_player":2.1},"treatment":{"players":20,"rounds_per_player":3.1}},"expected":{"attribution":"命中预期","inference_method":"descriptive","delta":1.0}}
+  ],
+  "references": [
+    {"id":"engineer-code","role":"Engineer","refs":["game.js","level:1"],"expected":true},
+    {"id":"analyst-cannot-cite-code","role":"Analyst","refs":["game.js"],"expected":false},
+    {"id":"reject-player-identity","role":"Reviewer","refs":["player-1"],"expected":false},
+    {"id":"refuse-unseen-level","role":"Engineer","refs":["level:9"],"expected":false},
+    {"id":"reject-unclassified-field","role":"Reviewer","refs":["unreleased_plan"],"expected":false},
+    {"id":"reviewer-can-cite-interference","role":"Reviewer","refs":["external_changes"],"expected":true}
+  ],
+  "candidates": [
+    {"id":"different-titles-same-loop","choices":[["沙舟","连线消除","metrics"],["云舟","连线消除","metrics"]],"expected":false},
+    {"id":"invented-business-evidence","choices":[["沙舟","连线消除","metrics"],["云舟","轮转拼图","猜测"]],"expected":false},
+    {"id":"distinct-evidenced-loops","choices":[["沙舟","连线消除","metrics"],["云舟","轮转拼图","game"]],"expected":true}
+  ],
+  "live_impact": [
+    {"id":"single-sprite","request":"精灵 beacon 的描边换为白色。只重画这一张已有贴图，保持策划、代码、关卡和声音。","expected":{"affected":["art"],"entities":["beacon"],"audio":false,"audio_tracks":[]}},
+    {"id":"audio-only","request":"仅将 UI 点击音改得柔和一些，只改美术音效规格和音轨，现有贴图、交互、玩法、关卡与代码均已验收。","expected":{"affected":["art"],"entities":[],"audio":true,"audio_tracks":["ui"]}}
+  ],
+  "live_operations": [
+    {"id":"independent-measurement","role":"Analyst","task":"iteration","phase":"independent",
+     "evidence":{"inference_mode":"descriptive","knowledge":[],"sources":["metrics","external_changes"],"game":{"metric":"action_rate","action_visitors":40,"action_players":4,"action_rate":10},"external_changes":[{"text":"观察期间活动入口发生替换，进入游戏的人群同时变化。","affects_measurement":true}]},
+     "expected":{"within_sources":true,"observed_denominator":true,"identified_interference":true}},
+    {"id":"dead-end-audit","role":"Reviewer","task":"new_game","phase":"constraints",
+     "evidence":{"inference_mode":"descriptive","knowledge":[],"sources":["dead_ends","metrics"],"game":{"metric":"d1_rate","d1_eligible":24,"d1_returned":2},"dead_ends":[{"id":"prior-speed","title":"仅提升动画速度","reason":"实验未改善首玩次留"}]},
+     "expected":{"within_sources":true,"examined":["prior-speed"]}}
+  ]
+}

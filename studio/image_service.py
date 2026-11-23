@@ -15,18 +15,13 @@ from pathlib import Path
 import httpx
 from PIL import Image
 
-from .settings import data_dir
+from .infra.image_response import completed_image
+from .settings import art_settings, data_dir
 from .store import encode
 
 
 def enabled():
-    return (
-        os.getenv(
-            "STUDIO_ART_MODE",
-            "responses" if os.getenv("STUDIO_ART_API_KEY") else "local",
-        )
-        == "responses"
-    )
+    return art_settings().mode == "responses"
 
 
 def folder():
@@ -54,17 +49,6 @@ def atomic(path, data):
             name.unlink(missing_ok=True)
 
 
-def extract(items):
-    return next(
-        (
-            i
-            for i in items
-            if i.get("type") == "image_generation_call" and i.get("result")
-        ),
-        None,
-    )
-
-
 def generate(body, base, key):
     with (
         httpx.Client(
@@ -85,42 +69,21 @@ def generate(body, base, key):
             raise RuntimeError(
                 f"图像网关 HTTP {response.status_code}，请检查 Responses 路由与所选模型"
             )
-        if "text/event-stream" not in response.headers.get("content-type", ""):
-            item = extract(json.loads(response.read()).get("output", []))
-            if item:
-                return item
-        else:
-            for line in response.iter_lines():
-                if not line.startswith("data:") or line[5:].strip() == "[DONE]":
-                    continue
-                event = json.loads(line[5:])
-                kind = event.get("type")
-                if kind in ("error", "response.failed", "response.incomplete"):
-                    raise RuntimeError("图像网关未完成生成，请检查生图权限、余额和模型")
-                if kind == "response.output_item.done":
-                    item = extract([event["item"]])
-                elif kind == "response.completed":
-                    item = extract(event["response"].get("output", []))
-                else:
-                    continue
-                if item:
-                    return item
-    raise RuntimeError("图像网关返回了空的生图结果")
+        return completed_image(response)
 
 
 def render(spec, reference):
-    key = os.getenv("STUDIO_ART_API_KEY")
-    if not key:
-        raise RuntimeError("Responses 美术模式需要 STUDIO_ART_API_KEY")
-    base = os.getenv("STUDIO_ART_BASE_URL", "https://www.maitokens.top/v1").rstrip("/")
-    model = os.getenv("STUDIO_ART_RESPONSE_MODEL", "gpt-image-2")
+    config = art_settings()
+    key, base, model = config.api_key, config.base_url, config.response_model
+    if config.mode != "responses" or not key:
+        raise RuntimeError("当前配置未启用 Responses 生图")
     tool = {
         "type": "image_generation",
         "size": "1024x1024",
         "quality": "medium",
         "background": "transparent",
     }
-    tool["model"] = os.getenv("STUDIO_ART_IMAGE_MODEL") or model
+    tool["model"] = config.image_model
     prompt = (
         "绘制一张用于移动端小游戏的独立精灵 PNG。主体完整、居中，有明确轮廓和透明留白，"
         "缩到 64 像素仍可辨认。不要文字、边框、拼贴或底板。参考图仅用于保持本游戏内实体风格。\n"
@@ -136,11 +99,17 @@ def render(spec, reference):
     with (root / (fingerprint + ".lock")).open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if cache.is_file():
-            saved = json.loads(cache.read_bytes())
             try:
-                png_bytes(saved)
-                return saved
-            except (FileNotFoundError, ValueError):
+                saved = json.loads(cache.read_bytes())
+                if (
+                    saved["request_hash"] == fingerprint
+                    and saved.get("reference_sha256") == parent_hash
+                    and saved["model"] == model
+                    and saved.get("tool") == tool["model"]
+                ):
+                    png_bytes(saved)
+                    return saved
+            except (FileNotFoundError, ValueError, TypeError, KeyError):
                 pass
         content = [{"type": "input_text", "text": prompt}]
         if reference:
@@ -192,7 +161,7 @@ def render(spec, reference):
         return record
 
 
-def merge_assets(previous, new, touched, change_audio):
+def merge_assets(previous, new, touched, change_audio, tracks=None):
     from .agents import Art
     from .artwork import sprite
 
@@ -208,7 +177,13 @@ def merge_assets(previous, new, touched, change_audio):
     merged["sprites"].extend(
         s for s in new["sprites"] if s["id"] in touched and s["id"] not in originals
     )
-    if change_audio:
+    if change_audio and tracks is not None and set(tracks) != set(previous["melody"]):
+        # Tempo and base pitch affect every rendered track; keep both for a local edit.
+        merged["melody"] = {
+            **previous["melody"],
+            **{name: new["melody"][name] for name in tracks},
+        }
+    elif change_audio:
         for key in ("tempo", "root_hz", "melody"):
             merged[key] = new[key]
     Art.model_validate(merged)

@@ -1,10 +1,10 @@
 """Role-scoped AgentScope skills and immutable manifests for resumable jobs."""
 
-import hashlib
 import json
 
 from agentscope.skill import LocalSkillLoader
 
+from studio.domain.fingerprints import digest as digest
 from studio.infra.repositories import skills as skills_db
 
 from .infra.store import db, encode, now
@@ -30,21 +30,6 @@ ROUTING = {
     "Moderator": (OPS,),
 }
 loader = LocalSkillLoader(str(ROOT / "studio/skills"), scan_subdir=True)
-
-
-def digest(value):
-    payload = (
-        value
-        if isinstance(value, str)
-        else json.dumps(
-            value,
-            sort_keys=True,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
-        )
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def routes(role, task=None):
@@ -113,6 +98,8 @@ def bind_prompt(run_id, role, node, schema, prompt):
     signature = digest(schema.model_json_schema())
     with db(True) as con:
         saved = skills_db.bind_prompt(con, run_id, role, node, signature, prompt)
-    if saved["schema_hash"] != signature:
+    if saved["schema_hash"] != signature and saved["schema_hash"] not in getattr(
+        schema, "compatible_schema_hashes", ()
+    ):
         raise RuntimeError("运行中的产物契约已变更，需要以新契约重新发起任务")
     return saved["prompt"]

@@ -82,6 +82,9 @@ def detail(con, game, rev_id=None):
     versions = revisions_db.versions(con, game)
     r = revisions_db.for_game(con, rev_id or versions[0]["id"], game)
     r["docs"] = json.loads(r["docs"])
+    progress = revisions_db.progress(con, r["id"])
+    if progress["summary"]:
+        r["docs"]["research_draft"] = progress["summary"]
     if r["stage"] in STEPS:
         job = jobs_db.production_status(con, r["id"], r["stage"])
     else:
@@ -94,6 +97,7 @@ def detail(con, game, rev_id=None):
         "history": revisions_db.history(con, r["id"]),
         "job": job,
         "tested": preview["n"],
+        "progress": progress,
         "artifacts": DOCS,
     }
 
@@ -247,13 +251,17 @@ def change(
     return next_stage
 
 
-def checkpoint(rev, stage, key, value, role, provider=None, bundle=None):
+def checkpoint(
+    rev, stage, key, value, role, provider=None, bundle=None, *, serial=None
+):
     with db(True) as con:
         r = revisions_db.get(con, rev)
-        if r["stage"] != stage:
+        if r["stage"] != stage or (serial is not None and r["serial"] != serial):
             raise Problem("任务已被新版本取代")
         docs = json.loads(r["docs"])
         docs[key] = value
+        if key == "research":
+            revisions_db.clear_draft(con, rev)
         revisions_db.checkpoint(con, encode(docs), bundle, rev)
         summary = (
             value.get("summary")

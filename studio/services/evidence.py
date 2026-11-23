@@ -6,6 +6,7 @@ import json
 from studio import acceptance, cartridge
 from studio import context as project_context
 from studio.domain import limits
+from studio.domain.evidence_sources import source_catalog
 from studio.domain.metrics import METRIC_HELP
 from studio.infra.reporting import report
 from studio.infra.repositories import evidence as evidence_db
@@ -37,7 +38,7 @@ def frozen_evidence(con, g, snapshot):
     candidates = evidence_db.comparable_knowledge(con, snapshot["end"])
     knowledge = []
     for k in candidates:
-        same_family = json.loads(k.pop("docs"))["levels"]["game_type"] == family
+        same_family = k.pop("family") == family
         if k["game"] == g["id"] or same_family:
             k["match_score"] = round(
                 (1 if k["game"] == g["id"] else 0.55) * k["confidence"], 3
@@ -46,7 +47,7 @@ def frozen_evidence(con, g, snapshot):
     knowledge = sorted(knowledge, key=lambda k: -k["match_score"])[:8]
     history = evidence_db.history(con, g["id"], snapshot["end"])
     evidence = {
-        "memory": project_context.capture(con, g["id"]),
+        "memory": project_context.capture(con, g["id"], snapshot["end"]),
         "inference_mode": "descriptive",
         "period": [snapshot["start"], snapshot["end"]],
         "definitions": METRIC_HELP,
@@ -84,54 +85,20 @@ def frozen_evidence(con, g, snapshot):
         (cartridge.folder(r["bundle"]) / "asset.json").read_bytes()
     )
     evidence["probes"] = acceptance.probes(r["bundle"], pack["levels"])
-    evidence["dead_ends"] = evidence_db.dead_ends(
-        con, snapshot["end"], g["id"], snapshot["end"], snapshot["end"]
-    )
+    evidence["dead_ends"] = evidence_db.dead_ends(con, g["id"], snapshot["end"])
     evidence["portfolio"] = [
         v["title"] for v in evidence_db.portfolio_titles(con, snapshot["end"])
     ]
     evidence["portfolio_designs"] = evidence_db.portfolio_designs(con, snapshot["end"])
-    peers = {v["id"] for v in evidence_db.peer_games(con, g["id"], family)}
-    evidence["peers"] = [v for v in snapshot.get("versions", []) if v["game"] in peers][
-        :20
-    ]
-    evidence["sources"] = [
-        "metrics",
-        "channels",
-        "history",
-        "peers",
-        "portfolio",
-        "dead_ends",
-        "gdd",
-        "game.js",
-        "level-generator.js",
-        "asset.json",
-        "quadrants",
-        *[f"level:{lv['index']}" for lv in pack["levels"]],
-        *["probe:" + i for i in evidence["probes"]],
-        *[k["id"] for k in knowledge],
-    ]
-    evidence["sources"].extend(
-        k
-        for k in (
-            "game",
-            "version",
-            "period",
-            "levels",
-            "center",
-            "priority",
-            "feedback",
-            "arms",
-            "historical_versions",
-            "external_changes",
-            "knowledge",
-            "portfolio_designs",
-            "level_pack",
-            "probes",
-            "definitions",
+    versions = snapshot.get("versions", [])
+    peer_ids = {
+        v["id"]
+        for v in evidence_db.peer_versions(
+            con, [v["rev"] for v in versions], g["id"], family
         )
-        if k in evidence and k not in evidence["sources"]
-    )
+    }
+    evidence["peers"] = [v for v in versions if v["rev"] in peer_ids][:20]
+    evidence["sources"] = source_catalog(evidence)
     return evidence
 
 

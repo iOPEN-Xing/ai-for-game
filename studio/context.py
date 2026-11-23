@@ -4,13 +4,15 @@ import json
 import secrets
 import zlib
 
-from studio.domain.deliberation import feedback_summary, visible_sources
+from studio.domain.context_policy import FIELDS
+from studio.domain.context_policy import bounded as bounded
+from studio.domain.context_policy import clean_handoff as clean_handoff
+from studio.domain.context_policy import evidence_for as evidence_for
+from studio.domain.context_policy import memory_for as memory_for
+from studio.domain.fingerprints import digest
 from studio.infra.repositories import memory as memory_db
 
-from . import skillbook
 from .infra.store import Problem, db, encode, now, uid
-
-FIELDS = ("audience", "visual_style", "controls", "audio", "avoid")
 
 
 def preferences(con, scope, subject):
@@ -31,11 +33,11 @@ def save_preferences(con, scope, subject, expected, values):
 def editor(con, request, response):
     token = request.cookies.get("loop_editor", "")
     if len(token) == 64 and token.isalnum():
-        subject = skillbook.digest(token)
+        subject = digest(token)
         if memory_db.known_editor(con, subject):
             return subject
     token = secrets.token_hex(32)
-    subject = skillbook.digest(token)
+    subject = digest(token)
     memory_db.create_editor(con, subject)
     secure = request.url.scheme == "https"
     response.set_cookie(
@@ -49,120 +51,26 @@ def editor(con, request, response):
     return subject
 
 
-def capture(con, game):
+def capture(con, game, cutoff=None):
     return {
         "id": uid(),
         "game": game,
         "captured": now(),
+        "evidence_before": cutoff,
         "preferences": preferences(con, "project", game),
-        "knowledge": memory_db.active_knowledge(con, game),
-        "decisions": memory_db.past_decisions(con, game),
+        "knowledge": memory_db.active_knowledge(con, game, cutoff),
+        "decisions": memory_db.past_decisions(con, game, cutoff),
     }
 
 
-PREFERENCE_FIELDS = {
-    "ArtDesigner": ("audience", "visual_style", "audio", "avoid"),
-    "LevelCoder": ("audience", "controls", "avoid"),
-    "LevelDesigner": ("audience", "controls", "avoid"),
-    "Analyst": ("audience", "avoid"),
-    "Engineer": ("controls", "audio", "avoid"),
-}
-
-
-def memory_for(role, saved):
-    prefs = saved["preferences"]
-    return {
-        "project": saved["game"],
-        "preference_version": prefs["version"],
-        "preferences": {
-            k: prefs["values"][k]
-            for k in PREFERENCE_FIELDS.get(role, FIELDS)
-            if k in prefs["values"]
-        },
-        "approved_knowledge": saved["knowledge"],
-        "past_decisions": saved["decisions"],
+def archive_input(run, node, visible, image_hashes, *, role, prompt):
+    payload = {
+        "input": visible,
+        "images": image_hashes,
+        "role": role,
+        "prompt_sha256": digest(prompt),
     }
-
-
-def evidence_for(role, frozen):
-    view = {
-        k: v
-        for k, v in frozen.items()
-        if k
-        not in ("memory", "game_code", "level_code", "probes", "level_pack", "assets")
-    }
-    sources = visible_sources(role, frozen)
-    if role in ("Engineer", "Reviewer"):
-        view.update(game_code=frozen["game_code"], level_code=frozen["level_code"])
-    # Reconstruct safe feedback aggregates when resuming pre-migration evidence snapshots.
-    view["feedback"] = feedback_summary(frozen.get("feedback", []))
-    view["sources"] = sources
-    pack = frozen["level_pack"]
-    view["level_pack"] = {k: pack[k] for k in ("seed", "mode", "family")}
-    if role == "Engineer":
-        view["level_pack"]["levels"] = pack["levels"]
-    else:
-        view["level_pack"]["levels"] = [
-            {k: v for k, v in lv.items() if isinstance(v, (str, int, float, bool))}
-            for lv in pack["levels"]
-        ]
-    view["probes"] = {
-        key: {
-            "observed": p["observed"],
-            "input_count": len(p["inputs"]),
-            "input_sha256": skillbook.digest(p["inputs"]),
-        }
-        for key, p in frozen["probes"].items()
-    }
-    view["assets"] = {
-        k: v
-        for k, v in frozen["assets"].items()
-        if k in ("style", "palette", "sprites", "audio")
-    }
-    return view
-
-
-def clean_handoff(value):
-    if isinstance(value, dict):
-        return {k: clean_handoff(v) for k, v in value.items() if not k.startswith("_")}
-    if isinstance(value, list):
-        return [clean_handoff(v) for v in value]
-    return value
-
-
-def bounded(visible, limit=160_000):
-    """Keep complete current evidence and code. Trim older comparisons first."""
-
-    def size():
-        return len(encode(visible).encode())
-
-    if size() <= limit:
-        return visible
-    evidence = visible.get("evidence", {})
-    omissions = {}
-    for key in (
-        "portfolio_designs",
-        "historical_versions",
-        "peers",
-        "history",
-        "external_changes",
-    ):
-        items = evidence.get(key, [])
-        if len(items) > 3:
-            omissions[key] = {"retained": 3, "available": len(items)}
-            evidence[key] = items[:3]
-        if size() + 800 <= limit:
-            break
-    if omissions:
-        visible["context_sampling"] = omissions
-    if size() > limit:
-        raise ValueError("当前必要证据和源码超过单次输入预算，请拆小任务后重新发起")
-    return visible
-
-
-def archive_input(run, node, visible, image_hashes):
-    payload = {"input": visible, "images": image_hashes}
-    fingerprint = skillbook.digest(payload)
+    fingerprint = digest(payload)
     if run:
         with db(True) as con:
             memory_db.save_input(
@@ -179,7 +87,12 @@ def archive_input(run, node, visible, image_hashes):
 def inspect_input(con, run, node, fingerprint):
     record = memory_db.input_snapshot(con, run, node, fingerprint)
     payload = json.loads(zlib.decompress(record["payload"]))
-    if skillbook.digest(payload) != fingerprint:
+    if digest(payload) != fingerprint:
         raise Problem("归档输入摘要校验失败")
-    prompt = memory_db.prompt_snapshot(con, run, node)
+    prompt = memory_db.prompt_snapshot(con, run, node, payload.get("role"))
+    if (
+        "prompt_sha256" in payload
+        and digest(prompt["prompt"]) != payload["prompt_sha256"]
+    ):
+        raise Problem("归档系统提示与本次输入不匹配")
     return {**payload, **prompt, "created": record["created"]}

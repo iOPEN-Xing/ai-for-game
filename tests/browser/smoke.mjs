@@ -41,6 +41,46 @@ try {
     await teamPage.evaluate(hash => { location.hash = hash; }, hash);
     await teamPage.locator(selector).first().waitFor();
   }
+  if (process.env.STUDIO_TEST_GAME) {
+    const gid = process.env.STUDIO_TEST_GAME;
+    const gamePath = '/api/games/' + gid;
+    const fixture = await (await teamPage.request.get(new URL(gamePath, team).href)).json();
+    const streamPath = '/api/revisions/' + fixture.revision.id + '/events';
+    const last = await teamPage.evaluate(path => new Promise((resolve, reject) => {
+      const events = new EventSource(path);
+      events.addEventListener('progress', event => {
+        events.close(); resolve({id: event.lastEventId, value: JSON.parse(event.data)});
+      });
+      events.onerror = () => { events.close(); reject(Error('Private revision stream unavailable')); };
+    }), streamPath);
+    assert.equal(last.value.terminal, true);
+    assert.equal(last.value.stage, 'released');
+    assert.match(last.id, /^[a-f0-9]{64}$/);
+    assert.equal((await teamPage.request.get(new URL(streamPath, playerSite).href, {ignoreHTTPSErrors:true})).status(), 404);
+
+    // Serve a held intermediate snapshot to exercise the real project subscriber
+    // without scheduling any paid jobs in CI.
+    const active = {...fixture.progress, stage:'interpret', serial:fixture.revision.serial + 1, job_state:'running', attempts:1, summary:null};
+    const draft = {...fixture, progress:active, job:{state:'running', attempts:1}, revision:{...fixture.revision, stage:'interpret', serial:active.serial}};
+    let fullRequests = 0, streamRequests = 0;
+    await teamPage.route('**' + gamePath, route => {
+      fullRequests++;
+      return route.fulfill({json:draft});
+    });
+    await teamPage.route('**' + streamPath, route => {
+      streamRequests++;
+      const event = { ...active, summary:'一条来自调研流的独立观察', terminal:false };
+      return route.fulfill({contentType:'text/event-stream', body:'retry: 60000\nid: fixture\nevent: progress\ndata: ' + JSON.stringify(event) + '\n\n'});
+    });
+    await teamPage.evaluate(id => {location.hash = 'project/' + id;}, gid);
+    await teamPage.getByText('一条来自调研流的独立观察', {exact:true}).waitFor();
+    assert.equal(fullRequests,1);
+    assert.equal(streamRequests,1);
+    await teamPage.evaluate(() => {location.hash = 'projects';});
+    await teamPage.locator('#list-filter').waitFor();
+    await teamPage.unroute('**' + streamPath);
+    await teamPage.unroute('**' + gamePath);
+  }
   await teamPage.getByRole('button', { name: '退出制作台' }).click();
   await teamPage.locator('#login input').waitFor();
   assert.equal((await teamPage.request.get(new URL('/api/studio', team).href)).status(), 401);

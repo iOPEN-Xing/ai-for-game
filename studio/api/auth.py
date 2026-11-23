@@ -2,7 +2,6 @@
 
 import hashlib
 import hmac
-import os
 import re
 import secrets
 from ipaddress import ip_address
@@ -13,7 +12,7 @@ from fastapi.responses import JSONResponse
 from studio.domain.commands import Login
 from studio.infra.repositories import sessions
 from studio.infra.store import Problem, db, now
-from studio.settings import deployed
+from studio.settings import deployed, team_key
 
 router = APIRouter()
 
@@ -23,7 +22,7 @@ def session_digest(token, key):
 
 
 def admin(request: Request):
-    key = os.getenv("STUDIO_ACCESS_KEY", "")
+    key = team_key()
     if not key and not deployed() and request.client:
         try:
             local_peer = ip_address(request.client.host).is_loopback
@@ -47,7 +46,7 @@ Private = [Depends(admin)]
 
 @router.post("/api/login")
 def login(body: Login, request: Request):
-    key = os.getenv("STUDIO_ACCESS_KEY", "")
+    key = team_key()
     if not key or not hmac.compare_digest(body.key.encode(), key.encode()):
         raise Problem("口令无效", 401)
     token = secrets.token_hex(32)

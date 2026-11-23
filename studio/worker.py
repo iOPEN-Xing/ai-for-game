@@ -115,13 +115,13 @@ def audit_deliveries(con):
                 proposals_db.fail(con, target)
 
 
-def reconcile():
+def reconcile(active_jobs=()):
     retention.sweep(now())
     local = dt.datetime.now(ZONE)
     latest = local.date() - dt.timedelta(days=1 if local.hour >= 8 else 2)
     with db(True) as con:
         # Only the elected worker owns jobs. Running calls refresh this lease every 15s.
-        jobs_db.recover_stale(con, now() - 180)
+        jobs_db.recover_stale(con, now() - 180, active_jobs)
         audit_deliveries(con)
         batches.audit_batches(con)
         for exp in experiments_db.due(con, now()):
@@ -152,33 +152,50 @@ async def serve():
                 await asyncio.sleep(2)
         with db(True) as con:
             jobs_db.recover_owned(con)
-        pending = set()
-        last_watch = 0
+            jobs_db.leader_pulse(con, now())
+
+        async def pulse_leader():
+            while True:
+                await asyncio.sleep(10)
+                with db(True) as con:
+                    jobs_db.leader_pulse(con, now())
+
+        pulse = asyncio.create_task(pulse_leader())
+        pending = {}
+        last_watch, watch_interval = 0, 1800
         try:
             while True:
+                if pulse.done():
+                    pulse.result()
                 current = now()
                 local = dt.datetime.now(ZONE)
-                if current - last_watch >= 1800 or (
+                if current - last_watch >= watch_interval or (
                     local.hour == 8 and local.minute == 0 and current - last_watch >= 60
                 ):
                     try:
-                        await asyncio.to_thread(reconcile)
+                        await asyncio.to_thread(reconcile, tuple(pending.values()))
+                        ok = True
                     except Exception as exc:  # noqa: BLE001 - a scheduler fault must leave the job loop available.
+                        ok = False
                         logging.getLogger(__name__).error(
                             "批次巡检失败 (%s)", type(exc).__name__
                         )
+                    with db(True) as con:
+                        jobs_db.reconciliation_result(con, now(), ok)
+                    watch_interval = 1800 if ok else 60
                     last_watch = current
                 for task in list(pending):
                     if task.done():
-                        pending.remove(task)
+                        del pending[task]
                         task.result()
                 if len(pending) < 2:
                     job = claim()
                     if job:
-                        pending.add(asyncio.create_task(run_job(job)))
+                        pending[asyncio.create_task(run_job(job))] = job["id"]
                         continue
                 await asyncio.sleep(0.4)
         finally:
+            pulse.cancel()
             for task in pending:
                 task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            await asyncio.gather(pulse, *pending, return_exceptions=True)

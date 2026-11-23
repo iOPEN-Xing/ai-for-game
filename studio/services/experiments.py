@@ -5,7 +5,7 @@ import json
 
 from studio import acceptance, cartridge
 from studio.domain import deliberation
-from studio.domain.metrics import click_difference_interval, sample_unit
+from studio.domain.evaluation import adjudicate
 from studio.infra.reporting import exp_stats
 from studio.infra.repositories import evidence as evidence_db
 from studio.infra.repositories import experiments as experiments_db
@@ -157,13 +157,6 @@ def settle(con, exp):
             (cartridge.folder(v["bundle"]) / "manifest.json").exists() for v in versions
         )
     )
-    denominator = sample_unit(g["metric"])
-    enough = all(
-        arms.get(a, {}).get(denominator, 0) >= bet["min_players"]
-        for a in ("control", "treatment")
-    )
-    change = None
-    interval = None
     diff = (
         delivery_diff(versions[0]["bundle"], versions[1]["bundle"])
         if delivery_ok
@@ -186,88 +179,28 @@ def settle(con, exp):
     changes = evidence_db.changes_during_experiment(
         con, g["id"], exp["started"], exp["due"]
     )
-    threshold = (
-        bet.get("falsify_below") if bet.get("falsify_below") is not None else bet["low"]
+    judgment = adjudicate(
+        g["metric"],
+        bet,
+        arms,
+        delivery_ok=delivery_ok,
+        confounded=any(c["affects_measurement"] for c in changes),
     )
-    if not delivery_ok:
-        attribution, conclusion, grade = (
-            "执行错",
-            "交付与冻结记录不符，本轮验证作废。",
-            "未验证推断",
-        )
-    elif any(e["affects_measurement"] for e in changes):
-        attribution, conclusion, grade = (
-            "方法错",
-            "实验期存在已标记的外部干扰，本轮结论退回未验证。",
-            "未验证推断",
-        )
-    elif not enough:
-        attribution, conclusion, grade = (
-            "方法待验证",
-            "每组样本未达到预注册门槛，保留原假设。",
-            "未验证推断",
-        )
-    else:
-        if g["metric"] in ("action_rate", "d1_rate"):
-            control, treatment = arms["control"], arms["treatment"]
-            numerator = (
-                "action_players" if g["metric"] == "action_rate" else "d1_returned"
-            )
-            change = 100 * (
-                treatment[numerator] / treatment[denominator]
-                - control[numerator] / control[denominator]
-            )
-            interval = click_difference_interval(
-                control, treatment, numerator, denominator
-            )
-        else:
-            change = arms["treatment"][g["metric"]] - arms["control"][g["metric"]]
-        if (
-            interval
-            and interval[1] >= threshold
-            and (interval[0] <= 0 <= interval[1] or interval[0] < threshold)
-        ):
-            attribution, conclusion, grade = (
-                "方法待验证",
-                "玩家比例差值的 95% 区间仍包含零或跨过证伪阈值，应继续验证。",
-                "未验证推断",
-            )
-        elif (interval[1] if interval else change) < threshold:
-            attribution, conclusion, grade = (
-                "假设错",
-                "收益低于预注册下界，本次证据反对该假设。",
-                "现象",
-            )
-        elif not bet["low"] <= change <= bet["high"]:
-            attribution, conclusion, grade = (
-                "方法待验证",
-                "收益落在预期区间之外，预测幅度需要复核。",
-                "现象",
-            )
-        else:
-            attribution, conclusion, grade = (
-                "命中预期",
-                "观察差值落在预注册区间。",
-                "现象",
-            )
+    grade, conclusion = judgment["grade"], judgment["conclusion"]
     result = {
-        "metric": g["metric"],
-        "sample_basis": denominator,
-        "interval_95_pp": [round(v, 3) for v in interval] if interval else None,
-        "delta": round(change, 3) if change is not None else None,
-        "expected": [bet["low"], bet["high"]],
+        **judgment,
         "arms": arms,
         "versions": versions,
-        "attribution": attribution,
-        "conclusion": conclusion,
+        "tested_change": bet["change"],
         "objections": bet["objections"],
         "falsifier": bet["falsifier"],
         "citations": bet["citations"],
-        "falsify_below": threshold,
         "changed_files": diff,
         "acceptance_error": criteria_error,
         "external_changes": changes,
     }
+    if judgment["attribution"] == "假设错":
+        evidence_db.record_dead_end(con, p["id"], now(), bet["title"], conclusion)
     experiments_db.save_result(con, encode(result), exp["id"])
     proposals_db.settled(con, p["id"])
     evidence_db.propose_knowledge(
@@ -275,7 +208,12 @@ def settle(con, exp):
         uid(),
         g["id"],
         exp["id"],
-        bet["title"] + "。" + conclusion,
+        f"{bet['title']}。改动：{bet['change']}。{conclusion}"
+        + (
+            f" {g['metric']} 观察差值 {judgment['delta']}，预注册范围 {judgment['expected']}。"
+            if judgment["delta"] is not None
+            else ""
+        ),
         encode(result),
         grade,
         0.2 if grade == "未验证推断" else 0.65,

@@ -44,8 +44,11 @@ curl --fail http://127.0.0.1:7860/readyz
 ## 开发与验证
 
 ```sh
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m scripts.sync_web_routes --check
+.venv/bin/python -m scripts.check
 ```
 
+本地验收需要 Node.js、Bash 和 Ruff 0.17.6。已安装 uv 时，命令会自动取得指定版本的 Ruff。
+
 测试创建独立数据库，使用受控模型输出，运行实际审批、SQLite 事务、游戏构建、QuickJS 回放及实验结算。变更 HTTP 路由后执行 `.venv/bin/python -m scripts.sync_web_routes` 更新前端接口表。仓库 CI 检查 Python、JavaScript 和 Linux 容器启动。它通过 Chrome 操作桌面与手机尺寸下的样片，再在测试发布的迷宫上通关、提交反馈并核对活动跳转。[持续集成](.github/workflows/check.yml)
+
+调整提示、技能或 GLM 版本后，执行 `.venv/bin/python -m scripts.evaluate_agents --live`。它使用临时数据库和合成案例，调用已配置的文本模型并输出分项 JSON 结果。常规 CI 的离线评测使用同一份案例集。八项约束、代码入口及扩展方法见 [Agent 工程验收](docs/ARCHITECTURE.md#agent-工程的八项验收)。
