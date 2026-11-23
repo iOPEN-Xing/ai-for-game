@@ -1,0 +1,63 @@
+name: Studio checks
+on: [push, pull_request]
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DOMAIN: localhost
+      ACME_EMAIL: ci@example.com
+      STUDIO_ACCESS_KEY: disposable-integration-test
+      STUDIO_VOLUME: loop-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      STUDIO_RESEARCH_ONLINE: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-linux.lock
+      - name: Install locked Linux dependencies
+        run: |
+          python -m pip install --only-binary=:all: -c requirements-linux.lock -r requirements.txt
+          python -m pip install ruff==0.17.6
+      - name: Verify code, contracts and offline workflows
+        run: |
+          ruff check app.py studio scripts tests
+          ruff format --check app.py studio scripts tests
+          python -m scripts.sync_web_routes --check
+          find studio/web studio/engine -name '*.js' -exec sh -ec 'for f do node --input-type=module --check <"$f"; done' sh {} +
+          python -m unittest discover -s tests -v
+      - name: Start the application and public gateway
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          docker compose up -d --build --wait --wait-timeout 150
+          curl --fail --retry 5 --retry-connrefused http://127.0.0.1:7860/readyz
+          test "$(docker compose exec -T app id -u)" = 10001
+          docker compose exec -T caddy cat /data/caddy/pki/authorities/local/root.crt > "$RUNNER_TEMP/caddy-ci.crt"
+          export CURL_CA_BUNDLE="$RUNNER_TEMP/caddy-ci.crt"
+          curl --fail --retry 5 --retry-connrefused -L https://localhost/ | grep -q 'id="player"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' https://localhost/api/studio)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7860/api/studio)" = 401
+      - name: Check private navigation and public player screens in Chrome
+        env:
+          STUDIO_TEST_KEY: disposable-integration-test
+        run: |
+          npm ci --ignore-scripts --prefix tests/browser
+          if command -v google-chrome > /dev/null; then
+            export CHROME_BIN="$(command -v google-chrome)"
+          else
+            (cd tests/browser && npx --no-install playwright-core install --with-deps chromium)
+          fi
+          npm test --prefix tests/browser
+      - name: Restore the running container's backup to a fresh volume
+        run: |
+          archive=$(./deploy/backup.sh)
+          ./deploy/restore.sh "$archive" "$STUDIO_VOLUME-restore"
+      - name: Shut down the isolated test stack
+        if: always()
+        run: docker compose down --volumes || true

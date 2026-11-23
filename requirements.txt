@@ -1,0 +1,9 @@
+agentscope==2.0.12
+fastapi==0.165.0
+uvicorn==0.54.0
+python-dotenv==1.2.4
+pydantic==2.14.4
+pillow==13.0.0
+quickjs-ng==0.18.0.2
+httpx==0.28.1
+markdown-it-py==4.3.0

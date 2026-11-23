@@ -1,0 +1,49 @@
+services:
+  app:
+    build: .
+    platform: linux/amd64
+    env_file: .env
+    environment:
+      STUDIO_DEPLOYED: "1"
+      STUDIO_ACCESS_KEY: ${STUDIO_ACCESS_KEY:?请设置团队制作台口令}
+      STUDIO_DATA_DIR: /data
+      STUDIO_PUBLIC_URL: https://${DOMAIN:?请填写玩家域名}
+    ports:
+      - "127.0.0.1:7860:7860"
+    volumes:
+      - loop-data:/data
+      - ./docs/original:/app/docs/original:ro
+    restart: unless-stopped
+    init: true
+    mem_limit: 3g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/healthz', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "3"}
+  caddy:
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?请填写玩家域名}
+      ACME_EMAIL: ${ACME_EMAIL:?请填写证书通知邮箱}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app: {condition: service_healthy}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "3"}
+volumes:
+  loop-data:
+    name: ${STUDIO_VOLUME:-loop-data}
+  caddy-data:
+  caddy-config:

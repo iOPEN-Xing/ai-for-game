@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#f7f9fc" />
+    <title>回路制作室 · 小游戏工作台</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#app">跳至工作区</a>
+    <header class="sitebar">
+      <div class="site-inner">
+        <a class="brand" href="#home" aria-label="回路制作室首页"
+          ><span class="brand-mark" aria-hidden="true"></span><span>回路制作室</span></a
+        >
+        <button
+          id="menu"
+          type="button"
+          aria-label="展开导航"
+          aria-expanded="false"
+          aria-controls="site-nav"
+        >
+          菜单
+        </button>
+        <nav id="site-nav" aria-label="工作室导航">
+          <a href="#home" data-nav="home">制作台</a>
+          <a href="#projects" data-nav="projects">游戏项目</a>
+          <a href="#ops" data-nav="ops">运营与实验</a>
+          <a href="#memory" data-nav="memory">知识与记忆</a>
+        </nav>
+        <a class="reference-link" href="/reference" target="_blank" rel="noopener"
+          >项目资料 <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="app" tabindex="-1"><p class="loading">正在打开工作室…</p></main>
+    <footer class="site-footer"><a href="/product">产品与试点说明</a><span id="model"></span></footer>
+    <dialog id="dialog"><div id="dialog-content"></div></dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/static/studio.js"></script>
+  </body>
+</html>
