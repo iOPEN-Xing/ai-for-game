@@ -3,6 +3,40 @@
 import math
 from collections import deque
 
+DEFAULT_MIN_LEVELS = 12
+MAX_LEVELS = 24
+
+
+def level_count_range(brief):
+    requested = brief.get("requested_count")
+    return (
+        (requested, requested)
+        if requested is not None
+        else (DEFAULT_MIN_LEVELS, MAX_LEVELS)
+    )
+
+
+def sample_level_indices(design):
+    count = design["count"]
+    return sorted(
+        {
+            0,
+            count // 2,
+            count - 1,
+            *(c["start"] - 1 for c in design.get("chapters", [])),
+        }
+    )
+
+
+def chapter_position(chapters, index, count):
+    """Coordinates shared by the authored curve, the game and the shipped blueprint."""
+    position = next(
+        i for i in reversed(range(len(chapters))) if chapters[i]["start"] <= index
+    )
+    start = chapters[position]["start"]
+    end = chapters[position + 1]["start"] if position + 1 < len(chapters) else count + 1
+    return {"number": position + 1, "level": index - start + 1, "length": end - start}
+
 
 def check_curve(p):
     bounds = {

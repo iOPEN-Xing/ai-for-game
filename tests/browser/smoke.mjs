@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
+import { playCampaign } from './sample-campaigns.mjs';
 
 const team = new URL(process.env.TEAM_URL || 'http://127.0.0.1:7860/');
 const playerSite = new URL(process.env.PLAYER_URL || 'https://localhost/');
@@ -86,10 +87,11 @@ try {
   assert.equal((await teamPage.request.get(new URL('/api/studio', team).href)).status(), 401);
   for (const [path, title, width, height] of [
     ['/sample?game=harbor', '港湾引航', 1280, 860],
+    ['/sample?game=post', '山间邮局', 1100, 750],
     ['/sample', '潮汐信标', 390, 844],
   ]) {
     const context = await browser.newContext({
-      viewport: { width, height }, locale: 'zh-CN',
+      viewport: { width, height }, hasTouch: width < 500, locale: 'zh-CN',
       ignoreHTTPSErrors: playerSite.hostname === 'localhost',
     });
     const page = await context.newPage();
@@ -102,6 +104,11 @@ try {
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth &&
       document.querySelector('.act').getBoundingClientRect().bottom <= innerHeight);
     assert.ok(fits, 'The game and start button must fit the viewport');
+    if (path !== '/sample?game=harbor') {
+      await playCampaign(page, playerSite, path === '/sample?game=post');
+      await context.close();
+      continue;
+    }
     await page.getByRole('button', { name: '开始游戏' }).click();
     await page.getByText('游戏中', { exact: true }).waitFor();
     await page.getByRole('button', { name: '结束本局' }).click();

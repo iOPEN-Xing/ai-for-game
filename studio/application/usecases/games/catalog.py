@@ -40,7 +40,7 @@ def overview():
 def create(body: Idea, editor_id: str):
     with db(True) as con:
         fingerprint = hashlib.sha256(
-            encode(body.model_dump(exclude={"request_id"})).encode()
+            encode(body.model_dump(exclude={"request_id"}, exclude_none=True)).encode()
         ).hexdigest()
         if body.request_id:
             prior = games_db.find_request(con, body.request_id)
@@ -56,6 +56,7 @@ def create(body: Idea, editor_id: str):
             body.metric,
             body.bounds,
             preferences=prefs["values"],
+            level_count=body.level_count,
         )
         if body.request_id:
             games_db.save_request(con, body.request_id, fingerprint, g, r)

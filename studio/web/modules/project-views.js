@@ -80,7 +80,7 @@ function home() {
         button('create', '新建游戏项目', 'primary add-button') +
         '</div>',
     ) +
-    '<div class="front-desk"><section class="sample-cover" aria-labelledby="sample-name"><div class="cover-copy"><span class="sample-type"><span class="pixel-light" aria-hidden="true"></span>可玩样片</span><h2 id="sample-name">潮汐信标</h2><p>在海雾中点亮信标，送小船回港。</p><a class="play-sample" href="/sample" target="_blank" rel="noopener"><span aria-hidden="true">▶</span> 试玩示例</a></div><div class="cover-spec">点触游戏 <span></span> 6 关</div></section>' +
+    '<div class="front-desk"><section class="sample-cover" aria-labelledby="sample-name"><div class="cover-copy"><span class="sample-type"><span class="pixel-light" aria-hidden="true"></span>可玩样片</span><h2 id="sample-name">潮汐信标</h2><p>预判灯阵的连锁反应，点亮整座港湾。</p><a class="play-sample" href="/sample" target="_blank" rel="noopener"><span aria-hidden="true">▶</span> 试玩示例</a></div><div class="cover-spec">灯阵解谜 <span></span> 3 章 12 关</div></section>' +
     '<section class="dispatch"><h2>待我处理</h2><ul>' +
     tasks
       .map(
@@ -218,12 +218,19 @@ function gate(d) {
       '</div>';
   } else if (s === 'quality') {
     title = '试玩验收';
+    const plan = r.docs.levels;
+    const startAt = plan?.chapters ? '<label>试玩起点 <select id="preview-level">' +
+      Array.from({length: plan.count}, (_, i) => {
+        const chapter = plan.chapters.findLast(c => c.start <= i + 1);
+        return '<option value="' + (i + 1) + '">第 ' + (i + 1) + ' 关 · ' + h(chapter.title) + '</option>';
+      }).join('') + '</select></label>' : '';
     body =
       '<p>已验证 ' +
       r.docs.validation.levels +
       ' 个关卡。' +
       h(r.docs.quality_report?.playtest_focus?.join(' ') || '完成一局试玩后，可以确认验收。') +
       '</p><div class="actions">' +
+      startAt +
       button('preview', '▷ 试玩游戏', 'primary') +
       button('accept', '确认验收', 'secondary', d.tested ? '' : 'disabled') +
       button('revise', '退回修改', 'ghost') +
@@ -275,8 +282,9 @@ function workflow(d) {
     ['gdd', '策划'],
     ['art', '美术与音频'],
     ['levels', '关卡设计'],
-    ['game_code', '游戏开发'],
-    ['level_code', '关卡开发'],
+    ...(doc.level_brief
+      ? [['level_code', '关卡开发'], ['game_code', '游戏开发']]
+      : [['game_code', '游戏开发'], ['level_code', '关卡开发']]),
     ['validation', '构建验收'],
   ];
   return (

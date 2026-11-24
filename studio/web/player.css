@@ -37,7 +37,7 @@ button:disabled { opacity: .55; cursor: wait; }
 .feedback-area label { display: grid; gap: 5px; font-size: .92rem; }
 .feedback-area input, .feedback-area select { padding: .6em; background: var(--shore); color: var(--sea); border: 1px solid var(--line); border-radius: 4px; width: 100%; }
 .feedback-area button { justify-self: start; }
-#other-sample { margin: 18px 0 0; }
+#other-sample { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 18px 0 0; }
 #other-sample a { color: var(--sea); text-underline-offset: .3em; font-size: .92rem; }
 @media (max-width: 720px) {
   .public-game { width: min(100% - 32px, 520px); padding-block: 18px; }
@@ -47,4 +47,17 @@ button:disabled { opacity: .55; cursor: wait; }
   .player-head .pill { white-space: nowrap; font-size: .83rem; }
   .instructions { margin-block: 8px 14px; line-height: 1.55; }
   .game-frame { height: clamp(265px, min(50svh, 106vw), 480px); }
+}
+.instructions p { margin: 0; }
+.chapter-heading { display: flex; align-items: center; gap: 14px; margin-bottom: .4em; color: var(--sea); }
+.chapter-track { display: inline-flex; gap: 4px; }
+.chapter-track i { width: 18px; height: 3px; background: var(--line); }
+.chapter-track .current { background: var(--rust); }
+.chapter-track .complete { background: var(--sea); }
+#player[data-viewport="portrait"] .game-frame { height: clamp(360px, 66svh, 690px); }
+#player[data-viewport="landscape"] .game-frame { height: clamp(280px, 48vw, 490px); }
+@media (max-width: 720px) {
+  .chapter-heading { margin: 0 0 2px; font-size: .92rem; }
+  #player[data-viewport="portrait"] .game-frame { height: clamp(220px, min(52svh, 125vw), 550px); }
+  #player[data-viewport="landscape"] .game-frame { height: clamp(190px, 68vw, 350px); }
 }

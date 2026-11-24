@@ -49,7 +49,7 @@ def main():
     run(*lint, "check", *targets)
     run(*lint, "format", "--check", *targets)
     run(PYTHON, "-m", "scripts.sync_web_routes", "--check")
-    for folder in ("studio/web", "studio/engine", "tests/browser"):
+    for folder in ("studio/web", "studio/engine", "tests/browser", "examples"):
         files = (
             (ROOT / folder).rglob("*")
             if folder != "tests/browser"

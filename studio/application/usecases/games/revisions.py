@@ -15,28 +15,44 @@ from studio.infra.repositories import revisions as revisions_db
 from studio.infra.store import Problem, db, encode, enqueue, log, now, uid
 
 
-def new_game(con, title, brief, metric, bounds, proposal=None, preferences=None):
+def new_game(
+    con,
+    title,
+    brief,
+    metric,
+    bounds,
+    proposal=None,
+    preferences=None,
+    *,
+    level_count=None,
+):
     if games_db.count(con) >= limits.GAMES_PER_STUDIO:
         raise Problem("已达到制作室游戏数量上限", 429, code="QUOTA_EXCEEDED")
     game = uid()
     games_db.create(con, game, title, brief, metric, bounds, now())
     if preferences:
         preference_store.save_preferences(con, "project", game, 0, preferences)
-    return game, new_revision(con, game, proposal=proposal)
+    return game, new_revision(con, game, proposal=proposal, level_count=level_count)
 
 
-def new_revision(con, game, parent=None, proposal=None, note=""):
+def new_revision(con, game, parent=None, proposal=None, note="", *, level_count=None):
     rev = uid()
     n = revisions_db.next_number(con, game)["n"]
     if n > limits.REVISIONS_PER_GAME:
         raise Problem("已达到此游戏的版本数量上限", 429, code="QUOTA_EXCEEDED")
-    stage, docs, seed, choice = "research", {}, secrets.randbits(31), None
+    stage, docs, seed, choice = (
+        "research",
+        {"level_brief": {"requested_count": level_count}},
+        secrets.randbits(31),
+        None,
+    )
     if parent:
         old = revisions_db.for_game(con, parent, game)
         inherited = json.loads(old["docs"])
         docs = {
             k: inherited[k]
             for k in (
+                "level_brief",
                 "route_research",
                 "research",
                 "discovery",

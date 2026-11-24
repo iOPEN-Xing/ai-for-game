@@ -26,7 +26,7 @@
 | 跟着哪个动作读 | 代码怎样接下去 |
 | --- | --- |
 | 团队点「创建」 | 接口建项目和首个版本，将调研任务写入 `jobs`。worker 取出任务，交给 `produce()`。该函数按当前阶段检查还缺哪些产物，生成一项就保存一项，到人工确认处停下。[创建版本](../studio/application/usecases/games/revisions.py#L18) · [任务分发](../studio/application/harness/worker.py#L30) · [生产循环](../studio/application/harness/production/workflow.py#L25) · [阶段和人工操作](../studio/domain/revision.py#L3) |
-| 轮到一个 Agent 工作 | 生产节点选定角色和预期输出格式，`consult()` 装入本次运行固定的指令、技能和可见上下文，通过 AgentScope 调用模型并校验结果。想改美术师收到的材料，先看节点。想改美术师共用哪份手册，先看角色与技能的对应表。[生产节点](../studio/application/harness/production/nodes.py#L46) · [模型调用](../studio/application/agents/gateway.py#L87) · [技能分配](../studio/application/agents/registry.py) |
+| 轮到一个 Agent 工作 | 生产节点选定角色和预期输出格式，`consult()` 装入本次运行固定的指令、技能和可见上下文，通过 AgentScope 调用模型并校验结果。想改美术师收到的材料，先看节点。想改美术师共用哪份手册，先看角色与技能的对应表。[生产节点](../studio/application/harness/production/nodes.py#L49) · [模型调用](../studio/application/agents/gateway.py#L87) · [技能分配](../studio/application/agents/registry.py) |
 | 上线后团队点「分析」 | 玩家完局产生观测记录。手动分析或每日批次冻结数据和对应源码，专家团据此形成提案。批准改版会创建同一游戏的新版本，回到第一条生产流程。实验到期后再结算效果，经验经审核生效。[冻结证据](../studio/application/usecases/operations/evidence.py#L19) · [专家讨论顺序](../studio/application/harness/operations/debate.py#L24) · [批准提案](../studio/application/usecases/operations/decisions.py#L14) · [结算](../studio/application/usecases/operations/experiments.py#L143) |
 
 旧集成可以继续从 `studio.production`、`studio.operations` 等 v1 入口导入。`domain/revision.py` 定义阶段规则，`application/usecases/games/revisions.py` 处理审批和版本变更，`infra/repositories/revisions.py` 负责其 SQL 读写。
@@ -63,6 +63,10 @@
 **新游立项**先让分析师、评审、工程师形成受众约束、已知死路审计和工程可行性记录；三份到齐后设计师交付 2–3 个候选。分析师挑战候选，主持人选定一个并记录淘汰理由，评审复核重合与证据。提交时和人审批准时都会核对候选引用是否对设计师可见。
 
 **生产检查点**依次经过调研、选参考、逐图分析、选方向、设计、方案审批、构建、试玩验收、待发布。版本号与阶段同时校验，陈旧审批返回 409。任务按节点保存产物，重试复用已完成节点，修改蓝图会使原构建试玩失效。SQLite 串行化写事务，耗时的模型调用与对局回放在写事务外运行。
+
+新项目把团队指定的关数保存在版本的 `level_brief` 中。Planner 交付画幅、构图、核心选择和反馈，LevelDesigner 规划 3–6 个章节及玩家目标。LevelCoder 先用 Seed 写出各关配置，GameCoder 读取各章入口、全程中点和末关的实际样例，用相同的 `L.chapter` 与 `L.content` 编写交互和解法。运行时生成和离线预制两种模式都将这份配置交给宿主与服务端回放。历史在制版本继续按创建时的工序和输出契约运行。[角色交接](../studio/application/harness/production/nodes.py) · [关卡契约](../studio/domain/levels.py)
+
+构建器在每关用玩家可发出的输入验证通关与确定性回放，并检查画面、空操作结局和不同 Seed 的代表关。它还会把输入固定在同一位置或按键，并尝试制造一次游戏自身计数的失误，观察之后按解法操作能否补救。逐章汇总的操作数和结果交给质量评审，对照设计复核时机、位置和容错。运营专家拿到同一构建的章节证据，团队在验收页可跳关检查手感。[回放检查](../studio/engine/playtest.js) · [构建证明](../studio/application/tools/cartridge.py)
 
 ## 原案例五层怎样验收
 

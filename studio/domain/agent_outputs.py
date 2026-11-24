@@ -13,6 +13,8 @@ from pydantic import (
     model_validator,
 )
 
+from studio.domain.levels import MAX_LEVELS
+
 Short = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=180)
 ]
@@ -122,6 +124,17 @@ class Design(Output):
     difficulty: Detail
 
 
+class Experience(Output):
+    viewport: Literal["square", "portrait", "landscape"]
+    composition: Short
+    decision: Detail
+    feedback: Short
+
+
+class GameDesign(Design):
+    experience: Experience
+
+
 Coordinate = Annotated[float, Field(ge=0, le=1)]
 Semitones = Annotated[
     list[Annotated[int, Field(ge=-12, le=24)]], Field(min_length=1, max_length=12)
@@ -205,6 +218,34 @@ class Levels(Output):
     curve: Detail
     count: int = Field(ge=3, le=12)
     mode: Literal["runtime", "prefab"]
+
+
+class Chapter(Output):
+    start: int = Field(ge=1, le=MAX_LEVELS)
+    title: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=2, max_length=24)
+    ]
+    goal: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=4, max_length=80)
+    ]
+    rule: Short
+
+
+class ChapterLevels(Levels):
+    count: int = Field(ge=3, le=MAX_LEVELS)
+    chapters: list[Chapter] = Field(min_length=3, max_length=6)
+
+    @model_validator(mode="after")
+    def chapters_cover_progression(self):
+        starts = [chapter.start for chapter in self.chapters]
+        if starts[0] != 1 or starts != sorted(set(starts)) or starts[-1] > self.count:
+            raise ValueError("章节从首关开始，起始关号须递增且在总关数内")
+        for field in ("title", "rule"):
+            if len({getattr(chapter, field) for chapter in self.chapters}) != len(
+                starts
+            ):
+                raise ValueError("每章需要独立标题和具体的新规则或决策")
+        return self
 
 
 class Source(Output):

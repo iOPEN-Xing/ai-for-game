@@ -79,7 +79,17 @@ def frozen_evidence(con, g, snapshot):
     }
     pack = acceptance.read_pack(r["bundle"])
     evidence["level_pack"] = {
-        k: pack[k] for k in ("seed", "mode", "family", "levels", "proof")
+        key: pack[key]
+        for key in (
+            "seed",
+            "mode",
+            "family",
+            "levels",
+            "proof",
+            "chapters",
+            "chapter_proof",
+        )
+        if key in pack
     }
     evidence["assets"] = json.loads(
         (cartridge.folder(r["bundle"]) / "asset.json").read_bytes()

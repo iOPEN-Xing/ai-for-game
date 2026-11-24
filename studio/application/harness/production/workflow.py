@@ -15,7 +15,7 @@ from studio.application.memory import snapshots
 from studio.application.prompts import BASE_RULES
 from studio.application.tools import acceptance, cartridge
 from studio.application.usecases.games.revisions import checkpoint
-from studio.domain.revision import NEXT, STEPS
+from studio.domain.revision import NEXT, STEPS, production_steps
 from studio.infra.repositories import games as games_db
 from studio.infra.repositories import proposals as proposals_db
 from studio.infra.repositories import revisions as revisions_db
@@ -45,7 +45,7 @@ async def produce(rev_id, stage):
     if stage == "design" and docs.get("impact_request") and "impact" not in docs:
         await apply_impact(revision, docs, context)
 
-    for key in STEPS[stage]:
+    for key in production_steps(stage, docs):
         if key in docs:
             continue
         if key == "validation":

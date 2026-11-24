@@ -32,6 +32,8 @@ def blueprints(rid):
                 "pace",
                 "grid",
                 "points",
+                "chapter",
+                "content",
                 "from",
                 "to",
                 "seed",
@@ -74,9 +76,9 @@ def edit_blueprint(rid, body: BlueprintEdit):
         overrides = {**code.get("overrides", {}), str(body.level): body.values}
         wrapped = (
             "const blueprintParameters=(()=>{" + base + "\nreturn parameters;})();\n"
-            "function parameters(index,total,seed){const edits="
+            "function parameters(index,total,seed,chapter){const edits="
             + encode(overrides)
-            + ";return {...blueprintParameters(index,total,seed),...edits[index]};}"
+            + ";return {...blueprintParameters(index,total,seed,chapter),...edits[index]};}"
         )
         try:
             cartridge.levels_for(design, body.seed, wrapped)

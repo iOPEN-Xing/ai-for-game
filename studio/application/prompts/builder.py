@@ -8,11 +8,13 @@ from studio.application.prompts import BASE_RULES
 from studio.application.prompts.tasks import PHASE_PROMPTS, TASK_PROMPTS
 from studio.domain.agent_outputs import (
     Art,
+    ChapterLevels,
     Impact,
     Research,
     SearchBrief,
     VisualAnalysis,
 )
+from studio.domain.levels import level_count_range
 
 
 def role_instructions(role):
@@ -27,6 +29,9 @@ def role_instructions(role):
 
 def output_schema(schema, evidence, context):
     spec = schema.model_json_schema()
+    if schema is ChapterLevels:
+        minimum, maximum = level_count_range(context.get("level_brief", {}))
+        spec["properties"]["count"].update(minimum=minimum, maximum=maximum)
     if issubclass(schema, Art) and (
         inventory := context.get("gdd", {}).get("illustrated_entities")
     ):

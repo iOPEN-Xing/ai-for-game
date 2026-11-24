@@ -43,7 +43,11 @@ def evidence_for(role, frozen):
     view["feedback"] = feedback_summary(frozen.get("feedback", []))
     view["sources"] = sources
     pack = frozen["level_pack"]
-    view["level_pack"] = {k: pack[k] for k in ("seed", "mode", "family")}
+    view["level_pack"] = {
+        key: pack[key]
+        for key in ("seed", "mode", "family", "chapters", "chapter_proof")
+        if key in pack
+    }
     if role == "Engineer":
         view["level_pack"]["levels"] = pack["levels"]
     else:

@@ -9,7 +9,8 @@ from studio.application.tools import acceptance, cartridge, image_service, resea
 from studio.application.usecases.games.revisions import checkpoint
 from studio.domain import agent_outputs as outputs
 from studio.domain.artifacts import DOCS, REFERENCE
-from studio.domain.revision import STEPS
+from studio.domain.levels import level_count_range, sample_level_indices
+from studio.domain.revision import STEPS, production_steps
 from studio.infra.repositories import revisions as revisions_db
 from studio.infra.store import db
 
@@ -38,7 +39,9 @@ AGENT_NODES = {
 
 
 def next_required_role(stage, completed):
-    deliverables = [key for key in STEPS[stage] if key in DELIVERABLES]
+    deliverables = [
+        key for key in production_steps(stage, completed) if key in DELIVERABLES
+    ]
     key = next((key for key in deliverables if key not in completed), deliverables[0])
     return DELIVERABLES[key][0]
 
@@ -50,6 +53,11 @@ async def prepare_request(key, revision, docs, prior, context):
     except KeyError:
         raise ValueError(f"未知生产节点 {key}") from None
     data = {**context, "_node": key}
+    if "level_brief" in docs:
+        data["level_brief"] = docs["level_brief"]
+        schema = {"gdd": outputs.GameDesign, "levels": outputs.ChapterLevels}.get(
+            key, schema
+        )
     last_source = docs.get("build_feedback", {}).get("sources", {}).get(key)
     if last_source:
         data["previous_submission"] = {"source": last_source}
@@ -151,7 +159,8 @@ async def prepare_request(key, revision, docs, prior, context):
         data.update(
             abi=cartridge.GAME_ABI,
             starter=last_source
-            or prior.get(key, {}).get("source", cartridge.source("game-template.js")),
+            or prior.get(key, {}).get("source")
+            or ("" if "level_brief" in docs else cartridge.source("game-template.js")),
             helpers=cartridge.source("base.js"),
             level_example="L.points contains {x,y,lane}; trail grid is a flat array of 0/1.",
         )
@@ -162,25 +171,36 @@ async def prepare_request(key, revision, docs, prior, context):
             cartridge.levels_for, docs["levels"], revision["seed"], curve
         )
         data["sample_level"] = code_levels[0]
+        if docs["levels"].get("chapters"):
+            data["chapter_samples"] = [
+                code_levels[i] for i in sample_level_indices(docs["levels"])
+            ]
+            data["level_generator"] = curve
     elif key == "level_code":
         data.update(
             abi=cartridge.CURVE_ABI,
             starter=last_source
             or prior.get(key, {}).get("source", cartridge.source("curve-template.js")),
-            game_module=docs["game_code"]["source"],
         )
+        if existing := docs.get("game_code") or prior.get("game_code"):
+            data["game_module"] = existing["source"]
     elif key == "quality_report":
         with db() as con:
             build = revisions_db.bundle(con, rev_id)["bundle"]
         pack = acceptance.read_pack(build)
         data.update(
             compiled_bundle=build,
-            materialized_levels=pack["levels"],
+            materialized_levels=(
+                [pack["levels"][i] for i in sample_level_indices(docs["levels"])]
+                if pack.get("chapters")
+                else pack["levels"]
+            ),
             level_factory=cartridge.source("factory.js"),
             level_parameter_contract=cartridge.CURVE_ABI,
             source=docs["game_code"]["source"],
             parameters=docs["level_code"]["source"],
             verification=docs["validation"],
+            chapter_proof=pack.get("chapter_proof", []),
         )
     return role, schema, data
 
@@ -293,6 +313,10 @@ async def validate_artifact(key, data, value, revision, game, docs):
             family == "trail" and value["mode"] != "prefab"
         ):
             raise ValueError("game_type 必须匹配方向，trail 必须使用 prefab")
+        if "level_brief" in docs:
+            low, high = level_count_range(docs["level_brief"])
+            if not low <= value["count"] <= high:
+                raise ValueError(f"本项目需要 {low} 至 {high} 关，须按创作要求编排章节")
     elif key in ("game_code", "level_code"):
         curve = (
             value["source"]
@@ -304,5 +328,10 @@ async def validate_artifact(key, data, value, revision, game, docs):
         levels, _ = await asyncio.to_thread(
             cartridge.levels_for, docs["levels"], revision["seed"], curve
         )
-        game = value["source"] if key == "game_code" else docs["game_code"]["source"]
-        await asyncio.to_thread(cartridge.verify_game, game, levels)
+        game_source = (
+            value["source"]
+            if key == "game_code"
+            else docs.get("game_code", {}).get("source")
+        )
+        if game_source:
+            await asyncio.to_thread(cartridge.verify_game, game_source, levels)

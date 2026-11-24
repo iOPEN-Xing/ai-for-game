@@ -141,7 +141,7 @@ export function bindActions({ refresh, decide, listeners }) {
             .join(''),
         );
       }
-      if (action === 'preview') await showPreview(refresh);
+      if (action === 'preview') await showPreview(refresh, Number($('#preview-level')?.value) || null);
       if (action === 'try-level') await showPreview(refresh, Number($('#lv').value) + 1);
       if (action === 'blueprints') await blueprints(refresh);
       if (action === 'download') {

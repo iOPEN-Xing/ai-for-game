@@ -144,10 +144,12 @@ async def consult(role, schema, context):
             stream=True,
             max_retries=0,
             parameters=OpenAIResponseModel.Parameters(
-                max_tokens=6500
-                if (schema is Source or issubclass(schema, Art)) or role == "Moderator"
+                max_tokens=14000
+                if schema is Source
+                else 6500
+                if issubclass(schema, Art) or role == "Moderator"
                 else 3800,
-                reasoning_effort="low",
+                reasoning_effort="medium" if schema is Source else "low",
             ),
             client_kwargs={"timeout": 180.0, "max_retries": 0},
         )

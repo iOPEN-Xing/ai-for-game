@@ -23,8 +23,8 @@ function maze(size, random) {
   }
   return cells;
 }
-function makeLevel(index, total, seed, family, parameters) {
-  const p = parameters(index, total, seed),
+function makeLevel(index, total, seed, family, parameters, chapter) {
+  const p = parameters(index, total, seed, chapter),
     derived = (seed + Math.imul(index, 2654435761)) >>> 0;
   const random = rng(derived);
   const level = {
@@ -39,6 +39,10 @@ function makeLevel(index, total, seed, family, parameters) {
     pace: p.pace,
     points: [],
   };
+  if (chapter) {
+    level.chapter = chapter;
+    level.content = p.content || {};
+  }
   for (let i = 0; i < p.quota + 4; i++)
     level.points.push({
       x: 0.15 + random() * 0.7,

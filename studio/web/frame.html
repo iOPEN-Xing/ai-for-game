@@ -34,6 +34,7 @@
       }
       header {
         width: min(100%, 420px);
+        min-height: 28px;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -42,7 +43,7 @@
       canvas {
         width: min(100%, calc(100vh - 50px));
         height: auto;
-        max-height: calc(100vh - 50px);
+        flex: 0 0 auto;
         aspect-ratio: 1;
         touch-action: none;
         border-radius: 10px;
@@ -123,15 +124,30 @@
         else sounds.bgm?.pause();
         canvas.focus();
       };
+      function fitBoard() {
+        const ratio = ({ portrait: 4 / 5, landscape: 3 / 2 })[meta?.viewport] || 1;
+        const header = document.querySelector('header');
+        const width = Math.max(1, Math.min(document.documentElement.clientWidth - 16,
+          (document.documentElement.clientHeight - header.offsetHeight - 22) * ratio));
+        const height = width / ratio, scale = Math.min(devicePixelRatio || 1, 2, 1600 / Math.max(width,height));
+        header.style.width = canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        if (snapshot) render(snapshot.scene);
+      }
+      window.addEventListener('resize', fitBoard);
       function render(commands) {
         const p = meta.assets.palette,
-          W = canvas.width;
+          W = canvas.width, H = canvas.height, unit = Math.min(W, H);
         ctx.fillStyle = p.background;
-        ctx.fillRect(0, 0, W, W);
+        ctx.fillRect(0, 0, W, H);
         ctx.save();
         ctx.globalAlpha = 0.16;
         ctx.fillStyle = p.ink;
-        for (let x = 8; x < W; x += 24) for (let y = 8; y < W; y += 24) ctx.fillRect(x, y, 2, 2);
+        if (!meta.viewport) {
+          for (let x = 8; x < W; x += 24) for (let y = 8; y < H; y += 24) ctx.fillRect(x, y, 2, 2);
+        }
         ctx.restore();
         function color(v) {
           return /^#[0-9a-f]{6}$/i.test(v) ? v : p[v] || (v === 'soft' ? p.ink : p.accent);
@@ -139,18 +155,30 @@
         for (const c of commands.slice(0, 500)) {
           if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
           const x = c.x * W,
-            y = c.y * W,
-            r = Math.max(0, Math.min(2, Number(c.r) || 0)) * W;
+            y = c.y * H,
+            r = Math.max(0, Math.min(2, Number(c.r) || 0)) * unit;
           ctx.save();
           ctx.fillStyle = ctx.strokeStyle = color(c.color);
-          ctx.globalAlpha = c.color === 'soft' ? 0.28 : 1;
-          ctx.lineWidth = 3;
-          if (c.kind === 'rect') ctx.fillRect(x, y, (c.w || 0) * W, (c.h || 0) * W);
+          const opacity = Number.isFinite(c.opacity) ? Math.min(1, Math.max(0, c.opacity)) : 1;
+          ctx.globalAlpha = (c.color === 'soft' ? 0.28 : 1) * opacity;
+          ctx.lineWidth = Math.max(1, unit * 0.004);
+          if (c.kind === 'rect') ctx.fillRect(x, y, (c.w || 0) * W, (c.h || 0) * H);
           if (c.kind === 'line') {
             ctx.beginPath();
             ctx.moveTo(x, y);
-            ctx.lineTo((c.x2 || 0) * W, (c.y2 || 0) * W);
+            ctx.lineTo((c.x2 || 0) * W, (c.y2 || 0) * H);
             ctx.stroke();
+          }
+          if (c.kind === 'polygon' && Array.isArray(c.points) &&
+              c.points.length >= 3 && c.points.length <= 32 &&
+              c.points.every(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))) {
+            ctx.beginPath();
+            c.points.forEach(([dx, dy], i) => {
+              if (i === 0) ctx.moveTo(x + dx * W, y + dy * H);
+              else ctx.lineTo(x + dx * W, y + dy * H);
+            });
+            ctx.closePath();
+            ctx.fill();
           }
           if (c.kind === 'circle' || c.kind === 'ring') {
             ctx.beginPath();
@@ -159,11 +187,16 @@
           }
           if (c.kind === 'sprite') {
             const asset = sprites[c.asset] || sprite;
-            if (asset?.naturalWidth) ctx.drawImage(asset, x - r, y - r, r * 2, r * 2);
+            if (asset?.naturalWidth) {
+              const scale = 2 * r / Math.max(asset.naturalWidth, asset.naturalHeight);
+              const w = meta.viewport ? asset.naturalWidth * scale : 2 * r;
+              const h = meta.viewport ? asset.naturalHeight * scale : 2 * r;
+              ctx.drawImage(asset, x - w / 2, y - h / 2, w, h);
+            }
           }
           if (c.kind === 'text') {
             ctx.textAlign = 'center';
-            ctx.font = 'bold ' + Math.max(12, Math.min(0.18, c.size || 0.035) * W) + 'px system-ui';
+            ctx.font = 'bold ' + Math.max(12, Math.min(0.18, c.size || 0.035) * unit) + 'px system-ui';
             ctx.fillText(String(c.text || '').slice(0, 80), x, y, W);
           }
           ctx.restore();
@@ -200,12 +233,16 @@
       function boot(payload) {
         meta = payload.game;
         level = payload.level;
+        fitBoard();
         document.body.style.background = meta.assets.palette.background;
         document.body.style.color = contrast(meta.assets.palette.background);
         sprite = new Image();
+        const paintLoaded = () => { if (snapshot) render(snapshot.scene); };
+        sprite.onload = paintLoaded;
         sprite.src = meta.sprite;
         for (const [id, url] of Object.entries(meta.sprites || {})) {
           const img = new Image();
+          img.onload = paintLoaded;
           img.src = url;
           sprites[id] = img;
         }
@@ -220,8 +257,9 @@
     try{
       if(m.kind==='init'){await LoopCartridge.init({});module=(await LoopCartridge.get('./game'))();L=module.level(m.level,m.entry);s=module.start(L);}
       else for(const e of m.events){if(!s.done)s=module.step(s,e,L);}
-      if(!s || !Array.isArray(module.draw(s,L)))throw Error('画面输出无效');
-      self.postMessage({kind:m.kind,score:s.score,elapsed:s.elapsed,seconds:L.seconds,done:!!s.done,won:!!s.won,mistakes:s.mistakes||0,scene:module.draw(s,L).slice(0,500)});
+      const scene=module.draw(s,L);
+      if(!s || !Array.isArray(scene))throw Error('画面输出无效');
+      self.postMessage({kind:m.kind,score:s.score,elapsed:s.elapsed,seconds:L.seconds,done:!!s.done,won:!!s.won,mistakes:s.mistakes||0,scene:scene.slice(0,500)});
     }catch{self.postMessage({error:'游戏模块执行失败'});}
   };`;
         const url = URL.createObjectURL(

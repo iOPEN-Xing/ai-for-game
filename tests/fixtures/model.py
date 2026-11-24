@@ -158,6 +158,13 @@ async def scripted(role, schema, data):
             "metric": data["metric"],
             "validation": "按正式开局观察首局完成情况",
         }
+        if "level_brief" in data:
+            out["experience"] = {
+                "viewport": "square",
+                "composition": "中央航道与远岸目标",
+                "decision": "选定下一盏信标的路线",
+                "feedback": "船前进并亮起暖色标记",
+            }
     elif role == "ArtDesigner":
         out = {
             "style": "图形和光圈区分灯塔",
@@ -212,8 +219,36 @@ async def scripted(role, schema, data):
             "mode": "prefab" if family == "trail" else "runtime",
             "count": 4,
         }
+        if "level_brief" in data:
+            count = data["level_brief"].get("requested_count") or 12
+            out.update(
+                count=count,
+                chapters=[
+                    {"start": start, "title": title, "goal": goal, "rule": rule}
+                    for start, title, goal, rule in (
+                        (1, "近岸值守", "点亮近处第一组航标", "循着短航线熟悉触摸目标"),
+                        (
+                            1 + count // 3,
+                            "狭湾换灯",
+                            "预判下一段航道位置",
+                            "结合目标顺序与间距",
+                        ),
+                        (
+                            1 + 2 * count // 3,
+                            "归港夜航",
+                            "完成更长的连续航程",
+                            "综合较小的目标与连续导航",
+                        ),
+                    )
+                ],
+            )
     elif role == "GameCoder":
         code = cartridge.source("game-template.js")
+        if "level_brief" in data:
+            code = code.replace(
+                "return baseDraw(s, L);",
+                "return [...baseDraw(s, L), {kind:'text',x:0.5,y:0.05,size:0.03,text:'航段 '+L.chapter.number}];",
+            )
         if "approved_proposal" in data:
             code = code.replace(
                 "return baseStep(s, e, L);",

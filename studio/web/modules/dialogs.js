@@ -21,10 +21,13 @@ function newIdea(example) {
       h(x.brief) +
       '</textarea></label><label>北极星指标<select name="metric">' +
       opts +
-      '</select></label><label>行动边界<textarea name="bounds" required maxlength="2000">单手触屏可玩，优先保证首关体验，不加入付费道具。</textarea></label>',
+      '</select></label><label>计划关数<input type="number" name="level_count" min="3" max="24" placeholder="由策划安排，通常 12–18 关"></label><label>行动边界<textarea name="bounds" required maxlength="2000">单手触屏可玩，优先保证首关体验，不加入付费道具。</textarea></label>',
     '开始玩法调研',
     async (f) => {
-      const r = await api(endpoint('create'), { request_id: requestId, ...Object.fromEntries(f) });
+      const idea = Object.fromEntries(f);
+      if (idea.level_count) idea.level_count = Number(idea.level_count);
+      else delete idea.level_count;
+      const r = await api(endpoint('create'), { request_id: requestId, ...idea });
       location.hash = 'project/' + r.game + '/' + r.rev;
     },
   );
@@ -89,6 +92,14 @@ async function showPreview(refresh, level = null) {
 async function blueprints(refresh) {
   const d = state.current,
     pack = await api(endpoint('blueprints', {rid: d.revision.id}));
+  const mistakeResults = {
+    recovered: '失误后按解法仍能通关',
+    immediate_loss: '失误立即结束本局',
+    lost_on_replay: '失误后按解法继续，最终失败',
+    unfinished: '失误后按解法未能完成',
+    no_recovery_input: '失误后没有可回放的解法输入',
+    not_observed: '本次探测未触发游戏计数的失误',
+  };
   popup(
     '关卡蓝图',
     '<p class="muted">Seed ' +
@@ -106,6 +117,8 @@ async function blueprints(refresh) {
       L = pack.levels[i],
       c = content.querySelector('canvas').getContext('2d'),
       W = 400;
+    const authoredLayout = !L.grid && L.content && Object.keys(L.content).length > 0;
+    c.canvas.hidden = Boolean(authoredLayout);
     c.fillStyle = '#ececd9';
     c.fillRect(0, 0, W, W);
     c.fillStyle = '#405844';
@@ -118,7 +131,7 @@ async function blueprints(refresh) {
         c.fillStyle = i ? '#c55934' : '#86a67b';
         c.fillRect((a % L.size) * w, Math.floor(a / L.size) * w, w, w);
       });
-    } else {
+    } else if (!authoredLayout) {
       c.strokeStyle = '#a4ad96';
       c.beginPath();
       L.points.forEach((p, i) => {
@@ -137,10 +150,16 @@ async function blueprints(refresh) {
       });
     }
     $('#level-detail').innerHTML = kv({
+      ...(L.chapter ? { 章节: pack.chapters[L.chapter.number - 1].title, 本关目标: pack.chapters[L.chapter.number - 1].goal } : {}),
       '关卡 Seed': L.seed,
       目标数量: L.quota,
       '时限（秒）': L.seconds,
-      验证步数: pack.proof[i].moves,
+      验证输入事件数: pack.proof[i].moves,
+      ...(L.chapter ? { 实际玩家操作数: pack.proof[i].playerInputs } : {}),
+      ...(pack.proof[i].afterMistake ? {
+        单次失误回放: mistakeResults[pack.proof[i].afterMistake],
+        固定位置或按键回放: pack.proof[i].fixedInputWon ? '仍然通关' : '未通关',
+      } : {}),
       较父版本变更: L.changes,
       ...(pack.removed_levels?.length ? { 已移除关卡: pack.removed_levels } : {}),
     });

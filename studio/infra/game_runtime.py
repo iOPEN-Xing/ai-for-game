@@ -4,29 +4,31 @@ import json
 
 import quickjs
 
-from studio.domain.levels import blueprint_path, check_curve
+from studio.domain.levels import blueprint_path, chapter_position, check_curve
 from studio.infra.bundles import folder, level_config
 from studio.infra.store import encode
 from studio.settings import ENGINE
 
 GAME_ABI = """Complete four pure functions start(L), step(s,e,L), draw(s,L), witness(s,L).
-The original scaffold, base helpers and factory are included. Reuse them and implement the design delta.
+Build the approved game from its player decisions and layout. Base helpers are optional.
+For chapter games L.chapter={number,level,length} (all 1-based counts), L.content is the level coder's authored JSON object. Read the supplied real chapter_samples.
 L.index (1-based), total, points, quota, seconds, radius, size, pace, seed, family; trail also has grid/from/to.
 For trail, start at L.from, draw and move on L.grid with L.size, and finish at L.to. An independent player
 will tap the centers of adjacent walkable cells from the published blueprint. Authored layouts belong in the level generator.
 start returns JSON {score,hits,elapsed,done,won,...}. step must return state. e.type tap (x,y normalized),
 press/move/release for drags; key/keyup (key ArrowLeft/ArrowRight/ArrowUp/ArrowDown/Space/Enter/KeyW/KeyA/KeyS/KeyD), tick (dt seconds <=0.1). Support touch.
-draw returns <=500 normalized commands: rect x,y,w,h; circle/ring/sprite x,y,r; line x,y,x2,y2;
+Touch down sends press and tap at the same location; touch up sends release. Score a single gesture once.
+draw returns <=500 normalized commands. Use {kind:"circle",x:0.5,y:0.5,r:0.08,color:"accent"}, never type for a drawing command. Allowed shapes: rect x,y,w,h; circle/ring/sprite x,y,r; line x,y,x2,y2; polygon x,y,points (3..32 pairs of normalized [dx,dy] relative to x,y). All commands allow opacity from 0 to 1.
 sprite commands can set asset to an id from art.sprites. Use those illustrations for the corresponding entities.
 text x,y,text,size (normalized). color is ink/accent/soft/background or #RRGGBB.
 witness returns ONE legal player/clock event per call to demonstrate a solution using the true rules.
 Start unfinished, reach a genuine user-controlled win, allow timeout losses. No DOM, imports or asynchronous code.
-Keep it compact, usually 12–45 lines. The base functions already implement the whole playable loop. Add the requested original scoring/goal and visuals on top; retain a winning witness. Do not reimplement template mechanics unnecessarily. Do not redefine helpers."""
+Use as much code as the rules need. Implement state transitions, meaningful alternatives, recovery and visible feedback. Render the approved spatial composition at its viewport aspect; coordinates scale independently, radii and text by the shorter side. Keep helpers from the host in their own namespace by avoiding redefinitions."""
 
 
-CURVE_ABI = """Complete a pure JS function parameters(index,total,seed) with a return object:
+CURVE_ABI = """Complete a pure JS function parameters(index,total,seed,chapter) with a return object:
 quota integer 2..24, seconds integer 12..180, radius number 0.035..0.22, size ODD integer 5..15,
-pace seconds 0.35..3.5. index is 1-based. Must give playable increasing difficulty.
+pace seconds 0.35..3.5. index is 1-based. For chapter games, chapter={number,level,length}. Return optional content (a JSON object up to 2048 UTF-8 bytes) with authored pieces, objectives, obstacles or rule switches used directly by the game. Introduce one challenge at a time, combine it later; allow recovery levels. Keep tutorial targets reachable and later levels solvable.
 For trail, optionally return grid (size * size row-major 0/1 cells), from and to (distinct walkable indices)
 to author a specific map. With no grid, the factory generates a seeded maze.
 Use the exact names, pure deterministic math. Include only the function, no export or Markdown."""
@@ -42,13 +44,13 @@ def source(name):
     )
 
 
-def js_context(*scripts):
+def js_context(*scripts, max_script_chars=64_000):
     ctx = quickjs.Context()
     ctx.set_memory_limit(24 * 1024 * 1024)
     ctx.set_max_stack_size(512 * 1024)
     ctx.set_time_limit(0.9)
     for script in scripts:
-        if len(script) > 64000:
+        if len(script) > max_script_chars:
             raise ValueError("代码超出单模块容量")
         ctx.eval(script)
     return ctx
@@ -61,37 +63,7 @@ def evaluate(ctx, expr):
     return json.loads(result)
 
 
-PROBE = """
-(L => {
-  let s=start(L), moves=0, inputs=0;
-  if(s.done || !Number.isFinite(s.score)) throw Error('invalid initial state');
-  const initial=JSON.stringify(s), picture=draw(s,L), inputsUsed=[];
-  if(JSON.stringify(s)!==initial) throw Error('draw mutated game state');
-  if(!Array.isArray(picture)||!picture.length||picture.length>500) throw Error('invalid scene');
-  for(const c of picture){
-    if(!c || !['rect','circle','ring','line','text','sprite'].includes(c.kind) ||
-       !Number.isFinite(c.x) || !Number.isFinite(c.y)) throw Error('invalid drawing primitive');
-  }
-  while(!s.done && moves<2200){
-    const e=witness(JSON.parse(JSON.stringify(s)),JSON.parse(JSON.stringify(L)));
-    if(!e || !['tap','press','move','release','tick','key','keyup'].includes(e.type)) throw Error('invalid witness input');
-    if(['tap','press','move','release'].includes(e.type) && !(e.x>=0 && e.x<=1 && e.y>=0 && e.y<=1)) throw Error('invalid tap');
-    if(e.type==='tick' && !(e.dt>0 && e.dt<=0.101)) throw Error('invalid tick');
-    if(e.type!=='tick') inputs++;
-    inputsUsed.push({...e});s=step(s,e,L);moves++;
-  }
-  if(!s.done || !s.won || !Number.isFinite(s.score) || !inputs) {
-    const trace={moves, inputs, quota:L.quota, elapsed:s.elapsed, hits:s.hits, mistakes:s.mistakes,
-      score:s.score, done:s.done, won:s.won, last:inputsUsed.slice(-2)};
-    throw Error('witness cannot win ' + JSON.stringify(trace).slice(0,450));
-  }
-  let second=start(L);
-  for (const e of inputsUsed) second=step(second,e,L);
-  if(JSON.stringify(second)!==JSON.stringify(s)) throw Error('input replay diverged');
-  return {moves,score:s.score,commands:picture.length,playerInputs:inputs};
-
-})
-"""
+PROBE = source("playtest.js")
 
 
 BLUEPRINT_PLAY = """
@@ -126,9 +98,21 @@ def levels_for(design, seed, curve):
     levels, params = [], []
     for index in range(1, design["count"] + 1):
         args = f"{index},{design['count']},{seed}"
-        p = evaluate(ctx, f"parameters({args})")
+        chapters = design.get("chapters")
+        chapter = (
+            chapter_position(chapters, index, design["count"]) if chapters else None
+        )
+        extra = "," + encode(chapter) if chapter else ""
+        p = evaluate(ctx, f"parameters({args}{extra})")
         check_curve(p)
-        expr = f"makeLevel({args},{encode(design['game_type'])},parameters)"
+        if chapter:
+            content = p.get("content", {})
+            if not isinstance(content, dict) or len(encode(content).encode()) > 2048:
+                raise ValueError(
+                    f"第 {index} 关 content 需要是 2048 字节以内的 JSON 对象"
+                )
+            p["chapter"] = chapter
+        expr = f"makeLevel({args},{encode(design['game_type'])},parameters{extra})"
         level = evaluate(ctx, expr)
         if level != evaluate(ctx, expr):
             raise ValueError("同一 Seed 产生了不同的关卡")
@@ -136,6 +120,27 @@ def levels_for(design, seed, curve):
             blueprint_path(level)
         levels.append(level)
         params.append(p)
+    if design.get("chapters"):
+        # Ignore automatic seed/point variation and chapter labels. Compare authored settings.
+        fields = (
+            "seconds",
+            "quota",
+            "pace",
+            "size",
+            "radius",
+            "content",
+            "grid",
+            "from",
+            "to",
+        )
+        patterns = {
+            json.dumps({k: p[k] for k in fields if k in p}, sort_keys=True)
+            for p in params
+        }
+        if len(patterns) < 3:
+            raise ValueError(
+                "章节至少需要三种实际关卡配置。通过机关、布局、操作窗口或目标改变玩法。"
+            )
     return levels, params
 
 
@@ -150,12 +155,15 @@ def approved_levels(pack, baseline_curve, changes, factory=None):
             continue
         args = f"{before['index']},{len(pack['levels'])},{pack['seed']}"
         family = encode(pack["family"])
-        if evaluate(context, f"makeLevel({args},{family},parameters)") != before:
+        extra = "," + encode(before["chapter"]) if "chapter" in before else ""
+        if evaluate(context, f"makeLevel({args},{family},parameters{extra})") != before:
             raise ValueError("当前工厂不能复现对照版本的冻结蓝图")
-        params = evaluate(context, f"parameters({args})")
+        params = evaluate(context, f"parameters({args}{extra})")
         params.update(edits)
         context.set("approvedParams", context.parse_json(encode(params)))
-        level = evaluate(context, f"makeLevel({args},{family},()=>approvedParams)")
+        level = evaluate(
+            context, f"makeLevel({args},{family},()=>approvedParams{extra})"
+        )
         # The default maze factory derives its endpoints. Endpoint-only edits keep its grid.
         for field in ("from", "to"):
             if field in edits:
@@ -180,11 +188,16 @@ def verify_game(code, levels):
                 f"第 {level['index']} 关 {level['family']} Seed {level['seed']}，{message}"
             ) from None
         proofs.append(proof)
+    if levels and "chapter" in levels[0] and len(levels) == levels[0]["total"]:
+        if not any(item["differsFromStarter"] for item in proofs):
+            raise ValueError(
+                "整套关卡在真实回放中的玩法与画面都沿用了默认样板。请实现 GDD 的核心决策和可见反馈"
+            )
     return proofs
 
 
 def remote_context(script):
-    ctx = js_context(script)
+    ctx = js_context(script, max_script_chars=512_000)
     ctx.eval(
         "LoopCartridge.get('./game').then(factory=>{globalThis.loadedGame=factory()})"
     )

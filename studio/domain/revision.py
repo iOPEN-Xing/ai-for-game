@@ -21,3 +21,15 @@ HUMAN_GATES = {
     "accept": ("quality", "ready"),
     "publish": ("ready", "released"),
 }
+
+
+def production_steps(stage, docs):
+    if stage == "build" and "level_brief" in docs:
+        return (
+            "route_build",
+            "level_code",
+            "game_code",
+            "validation",
+            "quality_report",
+        )
+    return STEPS[stage]

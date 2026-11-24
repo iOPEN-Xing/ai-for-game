@@ -1,7 +1,7 @@
 """Evidence types and deterministic review gates for both proposal kinds."""
 
 import unicodedata
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import (
     Field,
@@ -13,6 +13,7 @@ from pydantic import (
 
 from studio.domain.agent_outputs import Bet, Detail, Opinion, Output, Short
 from studio.domain.evidence_sources import visible_sources
+from studio.domain.levels import MAX_LEVELS
 
 PROTOCOL = 3
 CONSTRAINT_EXPERTS = ("Analyst", "Reviewer", "Engineer")
@@ -91,7 +92,7 @@ class DecisionDraft(Bet):
 
 class ParameterChange(Output):
     kind: Literal["parameter"]
-    level: int = Field(ge=1, le=12)
+    level: int = Field(ge=1, le=MAX_LEVELS)
     field: Literal["seconds", "quota", "radius", "pace", "size", "from", "to"]
     before: FiniteFloat
     after: FiniteFloat
@@ -99,7 +100,7 @@ class ParameterChange(Output):
 
 class ReplayChange(Output):
     kind: Literal["replay"]
-    level: int = Field(ge=1, le=12)
+    level: int = Field(ge=1, le=MAX_LEVELS)
     field: Literal["score", "won", "done"]
     before: int | bool
     after: int | bool
@@ -118,6 +119,10 @@ Check = Annotated[
 
 
 class IterationDraft(DecisionDraft):
+    # Existing runs pin the original proposal contract, which capped level IDs at 12.
+    compatible_schema_hashes: ClassVar = frozenset(
+        {"2ac094926909f8bbd61fb1921a6c0a1841b3232e9d9353401cfbb05832355fc5"}
+    )
     checks: list[Check] = Field(min_length=1, max_length=6)
 
     @model_validator(mode="after")
@@ -147,6 +152,10 @@ class LaunchDraft(DecisionDraft):
 
 
 class Iteration(IterationDraft):
+    # Existing runs pin the original proposal contract, which capped level IDs at 12.
+    compatible_schema_hashes: ClassVar = frozenset(
+        {"0aaa65857af7db826c0d3e2e959b37ca77b99b57b812ffaadb603e6ec2f02ba6"}
+    )
     resolutions: list[Resolution] = Field(min_length=1, max_length=8)
 
 

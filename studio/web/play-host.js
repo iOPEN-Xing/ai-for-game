@@ -1,5 +1,10 @@
 import { api } from './api-client.js';
 import { endpoint } from './player-routes.js';
+export const sampleGames = [
+  {id:'tidal', title:'潮汐信标', url:'/sample', source:'/static/sample-game.json'},
+  {id:'post', title:'山间邮局', url:'/sample?game=post', source:'/static/sample-post.json'},
+  {id:'harbor', title:'港湾引航 · 三关短篇', url:'/sample?game=harbor', source:'/static/sample-harbor.json'},
+];
 export function esc(value = '') {
   return String(value ?? '').replace(
     /[&<>"']/g,
@@ -26,8 +31,8 @@ export async function mountPlayer(
   const nonce = Array.from(crypto.getRandomValues(new Uint32Array(3)), (n) => n.toString(36)).join('');
   root.innerHTML = '<p class="muted">正在装载游戏模块…</p>';
   const payload = sample
-    ? { game: await api(sample === 'harbor' ? '/static/sample-harbor.json' : '/static/sample-game.json'),
-        level: level || 1, version: sample === 'harbor' ? 1 : 2 }
+    ? { game: await api((sampleGames.find(g => g.id === sample) || sampleGames[0]).source),
+        level: level || 1 }
     : await api(endpoint('open_round', {gid}), {
         player: playerId(),
         preview,
@@ -36,6 +41,7 @@ export async function mountPlayer(
         delivery: 'cached',
       });
   const game = payload.game || { ...(await api(payload.game_url)), ...payload.game_info };
+  if (sample) payload.version = game.origin?.version || 1;
   if (!root.isConnected) return () => {};
   const { round } = payload;
   const isPublicPage = root.id === 'player';
@@ -43,8 +49,13 @@ export async function mountPlayer(
   const title = isPublicPage
     ? '<h1>' + esc(game.title) + '</h1>'
     : '<div><span class="eyebrow">' + (preview ? '构建试玩' : '试玩') + ' / V' + esc(payload.version) + '</span><h3>' + esc(game.title) + '</h3></div>';
+  const chapters = game.chapters || [];
+  const chapter = chapters.findLast(item => item.start <= payload.level);
+  const chapterNote = chapter ? `<div class="chapter-heading"><strong>${esc(chapter.title)}</strong>
+    <span class="chapter-track" role="img" aria-label="第 ${chapters.indexOf(chapter) + 1} 章，共 ${chapters.length} 章">${chapters.map(c => `<i class="${c === chapter ? 'current' : c.start < chapter.start ? 'complete' : ''}"></i>`).join('')}</span></div>` : '';
+  root.dataset.viewport = ['portrait','landscape'].includes(game.viewport) ? game.viewport : 'square';
   root.innerHTML = `<div class="player-head">${title}<strong class="pill">第 ${payload.level} / ${game.count} 关</strong></div>
-    <p class="instructions">${esc(game.controls)}</p><iframe class="game-frame" title="可交互游戏画面" sandbox="allow-scripts"></iframe><div class="play-actions"><span class="play-status" role="status">正在加载…</span><button class="primary act" disabled>开始游戏</button></div><div class="campaign-action"></div><div class="feedback-area"></div>`;
+    <div class="instructions">${chapterNote}<p>${esc(chapter?.goal || game.controls)}</p></div><iframe class="game-frame" title="可交互游戏画面" sandbox="allow-scripts"></iframe><div class="play-actions"><span class="play-status" role="status">正在加载…</span><button class="primary act" disabled>开始游戏</button></div><div class="campaign-action"></div><div class="feedback-area"></div>`;
   const frame = root.querySelector('iframe'),
     btn = root.querySelector('.act'),
     feedback = root.querySelector('.feedback-area'),
@@ -72,10 +83,11 @@ export async function mountPlayer(
     await startPromise;
     if (!sample) await api(endpoint('event', {token: round}), { event: 'end', ...result });
     finished = true;
-    status.textContent = (result.won ? '通关' : '本局结束') + ' · ' + result.score + ' 分';
+    const completed = result.won && payload.level === game.count;
+    status.textContent = (completed ? '全部通关' : result.won ? '通关' : '本局结束') + ' · ' + result.score + ' 分';
     state = 'ended';
     btn.disabled = false;
-    btn.textContent = result.won && payload.level < game.count ? '下一关' : '再玩一局';
+    btn.textContent = completed ? '重玩首关' : result.won ? '下一关' : '再玩一局';
     onFinish(result);
     if (!preview && !sample) {
       if (payload.action_label && result.finish === 'natural') {
@@ -157,7 +169,7 @@ export async function mountPlayer(
       else if (state === 'save') await recordEnd(lastEnd);
       else if (state === 'ended') {
         dispose();
-        const next = lastEnd.won ? Math.min(payload.level + 1, game.count) : payload.level;
+        const next = lastEnd.won ? (payload.level === game.count ? 1 : payload.level + 1) : payload.level;
         const nextDispose = await mountPlayer(root, gid, {
           preview,
           level: next,

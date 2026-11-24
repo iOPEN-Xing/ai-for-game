@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from studio.domain import limits
+from studio.domain.levels import MAX_LEVELS
 
 Text = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
@@ -32,6 +33,7 @@ class Login(Command):
 
 class Idea(Command):
     request_id: Player | None = None
+    level_count: int | None = Field(default=None, ge=3, le=MAX_LEVELS)
     title: Title
     brief: Text
     metric: Literal[
@@ -72,14 +74,14 @@ class Note(Command):
 class BlueprintEdit(Command):
     serial: int = Field(ge=0)
     seed: int = Field(ge=0, le=2147483647)
-    level: int = Field(ge=1, le=12)
+    level: int = Field(ge=1, le=MAX_LEVELS)
     values: dict[str, int | float | list[int]] = Field(max_length=8)
 
 
 class RoundRequest(Command):
     player: Player
     preview: str | None = None
-    level: int | None = Field(default=None, ge=1, le=12)
+    level: int | None = Field(default=None, ge=1, le=MAX_LEVELS)
     delivery: Literal["inline", "cached"] = "inline"
     campaign: Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{24}$")] | None = None
 

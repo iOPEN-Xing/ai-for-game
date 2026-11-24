@@ -10,7 +10,7 @@ from pathlib import Path
 
 from studio.application.tools.artwork import sound, sprite
 from studio.domain import limits
-from studio.domain.levels import blueprint_path, check_curve
+from studio.domain.levels import blueprint_path, check_curve, sample_level_indices
 from studio.infra.bundles import (
     bundle_zip,
     folder,
@@ -45,10 +45,7 @@ def compile_bundle(rev, docs):
     regressions = []
     for extra_seed in (rev["seed"] ^ 0x1729, rev["seed"] ^ 0x1138):
         additional, _ = levels_for(design, extra_seed, curve)
-        cases = [
-            additional[i]
-            for i in sorted({0, len(additional) // 2, len(additional) - 1})
-        ]
+        cases = [additional[i] for i in sample_level_indices(design)]
         regressions.append(
             {
                 "seed": extra_seed,
@@ -67,7 +64,7 @@ def compile_bundle(rev, docs):
         "entries": params if runtime else levels,
     }
     get_level = (
-        "(i,entry=shippedConfig.entries[i-1])=>makeLevel(i,shippedConfig.count,shippedConfig.seed,shippedConfig.family,()=>entry)"
+        "(i,entry=shippedConfig.entries[i-1])=>makeLevel(i,shippedConfig.count,shippedConfig.seed,shippedConfig.family,()=>entry,entry.chapter)"
         if runtime
         else "(i,entry=shippedConfig.entries[i-1])=>entry"
     )
@@ -104,6 +101,32 @@ def compile_bundle(rev, docs):
         "proof": proof,
         "regressions": regressions,
     }
+    chapters = design.get("chapters", [])
+    if chapters:
+        pack["chapters"] = chapters
+        pack["chapter_proof"] = []
+        for number, chapter in enumerate(chapters, 1):
+            section = [
+                p
+                for lv, p in zip(levels, proof, strict=True)
+                if lv["chapter"]["number"] == number
+            ]
+            actions = [p["playerInputs"] for p in section]
+            recoveries = [p["afterMistake"] for p in section]
+            pack["chapter_proof"].append(
+                {
+                    "title": chapter["title"],
+                    "start": chapter["start"],
+                    "end": chapter["start"] + len(section) - 1,
+                    "min_inputs": min(actions),
+                    "max_inputs": max(actions),
+                    "fixed_input_wins": sum(p["fixedInputWon"] for p in section),
+                    "after_mistake": {
+                        result: recoveries.count(result)
+                        for result in sorted(set(recoveries))
+                    },
+                }
+            )
     difficulty = io.StringIO()
     writer = csv.DictWriter(
         difficulty, fieldnames=["level", "quota", "seconds", "radius", "size", "pace"]
@@ -145,6 +168,15 @@ def compile_bundle(rev, docs):
             ]
         ]
     )
+    if experience := gdd.get("experience"):
+        gdd_text += "\n\n## 画面与交互\n\n" + "\n\n".join(
+            experience[k] for k in ("viewport", "composition", "decision", "feedback")
+        )
+    if chapters:
+        gdd_text += "\n\n## 章节\n\n" + "\n\n".join(
+            f"第 {c['start']} 关起 · {c['title']}\n\n{c['goal']}\n\n{c['rule']}"
+            for c in chapters
+        )
     if inventory := gdd.get("illustrated_entities"):
         gdd_text += "\n\n## 生图清单\n\n" + "\n".join(
             f"- {entry['id']}　{entry['title']}" for entry in inventory
@@ -187,6 +219,12 @@ def compile_bundle(rev, docs):
         "exposes": "./game",
         "assets": asset,
     }
+    if chapters:
+        manifest["chapters"] = [
+            {k: c[k] for k in ("start", "title", "goal")} for c in chapters
+        ]
+    if experience:
+        manifest["viewport"] = experience["viewport"]
     files["manifest.json"] = encode(manifest).encode()
     if sum(map(len, files.values())) > limits.BUNDLE_BYTES:
         raise ValueError("构建超过 5 MiB，请缩减图像、音轨或关卡数据")

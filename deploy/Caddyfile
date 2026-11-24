@@ -29,7 +29,7 @@
 	redir @home /sample?game={$SAMPLE_GAME:harbor} 302
 	@player {
 		method GET HEAD
-		path /sample /play/* /cartridges/v1/* /static/player-page.js /static/play-host.js /static/api-client.js /static/player-routes.js /static/frame.html /static/player.css /static/sample-game.json /static/sample-harbor.json
+		path /sample /play/* /cartridges/v1/* /static/player-page.js /static/play-host.js /static/api-client.js /static/player-routes.js /static/frame.html /static/player.css /static/sample-game.json /static/sample-post.json /static/sample-harbor.json
 	}
 	@events {
 		method POST
