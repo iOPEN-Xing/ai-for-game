@@ -2,8 +2,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
 from studio.api.auth import admin
+from studio.application.usecases import gameplay
 from studio.domain.commands import Feedback, RoundEvent, RoundRequest
-from studio.services import gameplay
 
 router = APIRouter()
 

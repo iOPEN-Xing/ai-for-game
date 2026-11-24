@@ -4,7 +4,10 @@ import json
 import zipfile
 from unittest.mock import patch
 
-from studio import agents, cartridge, worker
+from studio.application.agents import gateway
+from studio.application.harness import worker
+from studio.application.tools import cartridge
+from studio.domain import agent_outputs as outputs
 from tests.fixtures.model import scripted
 from tests.support import IDEA, StudioCase
 
@@ -139,7 +142,7 @@ class ProductionTests(StudioCase):
                 )
             return val, provider
 
-        with patch.object(agents, "consult", side_effect=stalled):
+        with patch.object(gateway, "consult", side_effect=stalled):
             job = worker.claim()
             asyncio.run(worker.run_job(job))
         feedback = self.get("games/" + self.game)["revision"]["docs"]["build_feedback"]
@@ -152,7 +155,7 @@ class ProductionTests(StudioCase):
                 contexts.append(data)
             return await scripted(role, schema, data)
 
-        with patch.object(agents, "consult", side_effect=repaired):
+        with patch.object(gateway, "consult", side_effect=repaired):
             self.work()
         self.assertEqual(contexts[0]["starter"], feedback["sources"]["game_code"])
         self.assertEqual(
@@ -185,7 +188,7 @@ class ProductionTests(StudioCase):
                 value["sprites"][0] = {**value["sprites"][0], "title": "错误替换"}
             return value, provider
 
-        with patch.object(agents, "consult", side_effect=add_star):
+        with patch.object(gateway, "consult", side_effect=add_star):
             self.work()
         docs = self.get("games/" + self.game)["revision"]["docs"]
         self.assertEqual(docs["impact"]["entities"], ["star"])
@@ -220,8 +223,10 @@ class ProductionTests(StudioCase):
             submitted.append([s["id"] for s in art["sprites"]])
 
         with (
-            patch.object(agents, "consult", side_effect=wrong_inventory),
-            patch("studio.image_service.materialize", side_effect=record),
+            patch.object(gateway, "consult", side_effect=wrong_inventory),
+            patch(
+                "studio.application.tools.image_service.materialize", side_effect=record
+            ),
         ):
             self.work()
         self.assertEqual(len(attempts), 3)
@@ -255,7 +260,7 @@ class ProductionTests(StudioCase):
 
         async def audio_edit(role, schema, data):
             called.append(role)
-            if schema is agents.Impact:
+            if schema is outputs.Impact:
                 return {
                     "reason": "只改点击音",
                     "affected": ["art"],
@@ -270,7 +275,7 @@ class ProductionTests(StudioCase):
                 value["sprites"][0]["title"] = "未请求的视觉编辑"
             return value, provider
 
-        with patch.object(agents, "consult", side_effect=audio_edit):
+        with patch.object(gateway, "consult", side_effect=audio_edit):
             self.work()
         after = self.get("games/" + self.game)["revision"]["docs"]
         previous, current = before["art"], after["art"]
@@ -289,7 +294,7 @@ class ProductionTests(StudioCase):
         self.decision("revise", target="auto", note="只重绘塔的贴图")
 
         async def repaint(role, schema, data):
-            if schema is agents.Impact:
+            if schema is outputs.Impact:
                 return {
                     "reason": "塔的视觉变化",
                     "affected": ["art"],
@@ -302,7 +307,7 @@ class ProductionTests(StudioCase):
                 value["sprites"][0]["title"] = "白塔"
             return value, provider
 
-        with patch.object(agents, "consult", side_effect=repaint):
+        with patch.object(gateway, "consult", side_effect=repaint):
             self.work()
         after = self.get("games/" + self.game)["revision"]["docs"]
         self.assertEqual(after["art"]["sprites"][0]["title"], "白塔")

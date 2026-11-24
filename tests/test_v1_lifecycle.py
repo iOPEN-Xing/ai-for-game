@@ -8,13 +8,15 @@ import json
 import os
 from unittest.mock import patch
 
-from studio import cartridge, research, skillbook
+from studio.application.agents import skillbook
+from studio.application.harness.production import nodes as production_nodes
+from studio.application.tools import cartridge, research
+from studio.application.usecases.operations import batches, evidence
 from studio.domain import limits
 from studio.domain.commands import RoundEvent
 from studio.infra import bundles, rate_limits, retention
 from studio.infra.reporting import report
 from studio.infra.store import db, need, now
-from studio.services import batches, evidence, production_nodes
 from studio.settings import ZONE
 from tests.support import StudioCase
 

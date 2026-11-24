@@ -42,9 +42,6 @@ FAMILIES = {
     "drift": "轨道接力",
     "custom": "自定义机制",
 }
-BASE_RULES = (
-    "人工确认方向、方案、质量和发布。运营只提案。仅引用有来源的数据，优先北极星指标。"
-)
 
 
 def data_dir():
@@ -115,6 +112,10 @@ def chat_settings():
     return ChatSettings(
         chat_model(), _endpoint("ZAI_BASE_URL", "https://api.z.ai/api/v1"), providers
     )
+
+
+def provider_names():
+    return [name for name, _ in chat_settings().providers]
 
 
 @dataclass(frozen=True)

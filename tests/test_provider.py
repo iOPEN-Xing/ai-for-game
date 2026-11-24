@@ -7,7 +7,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from studio import agents, skillbook
+from studio.application.agents import gateway, skillbook
+from studio.domain import agent_outputs as outputs
 
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
@@ -29,20 +30,20 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
                     "objection": "暂时无法估计改版差值。",
                 }
                 return SimpleNamespace(
-                    finished_reason=agents.ReplyFinishedReason.COMPLETED,
+                    finished_reason=gateway.ReplyFinishedReason.COMPLETED,
                     get_text_content=lambda: json.dumps(report),
                 )
 
         with (
-            patch.object(agents, "Agent", TestAgent),
+            patch.object(gateway, "Agent", TestAgent),
             patch.dict(
                 os.environ,
                 {"ZAI_1_TOKEN": "test-key", "ZAI_2_TOKEN": "", "ZAI_EXTRA_TOKEN": ""},
             ),
         ):
-            result, _ = await agents.consult(
+            result, _ = await gateway.consult(
                 "Analyst",
-                agents.Opinion,
+                outputs.Opinion,
                 {"evidence": {"inference_mode": "descriptive", "players": 1}},
             )
         self.assertEqual(result["evidence"], observed)
@@ -61,13 +62,13 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
                 inputs.append(message.get_text_content())
                 if len(inputs) == 1:
                     return SimpleNamespace(
-                        finished_reason=agents.ReplyFinishedReason.COMPLETED,
+                        finished_reason=gateway.ReplyFinishedReason.COMPLETED,
                         get_text_content=lambda: "{}",
                     )
                 if len(calls) == 1:
                     raise ConnectionError("upstream unavailable")
                 return SimpleNamespace(
-                    finished_reason=agents.ReplyFinishedReason.COMPLETED,
+                    finished_reason=gateway.ReplyFinishedReason.COMPLETED,
                     get_text_content=lambda: json.dumps(
                         {
                             "summary": "dispatch",
@@ -87,12 +88,12 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         }
         with (
             patch.dict(os.environ, opts),
-            patch.object(agents, "Agent", TestAgent),
-            patch.object(agents, "_counter", itertools.count()),
-            patch.object(agents, "_cooldowns", {}),
+            patch.object(gateway, "Agent", TestAgent),
+            patch.object(gateway, "_counter", itertools.count()),
+            patch.object(gateway, "_cooldowns", {}),
         ):
-            result, provider = await agents.consult(
-                "Producer", agents.Route, {"request_stage": "design"}
+            result, provider = await gateway.consult(
+                "Producer", outputs.Route, {"request_stage": "design"}
             )
         self.assertEqual(provider, "zai_2")
         self.assertIn("请纠正", inputs[1])
@@ -116,4 +117,4 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
             ),
             self.assertRaisesRegex(RuntimeError, "ZAI_1_TOKEN"),
         ):
-            await agents.consult("Planner", agents.Design, {})
+            await gateway.consult("Planner", outputs.Design, {})

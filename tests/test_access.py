@@ -6,7 +6,8 @@ import quickjs
 from fastapi.testclient import TestClient
 
 import app as server
-from studio import cartridge, skillbook
+from studio.application.agents import skillbook
+from studio.application.tools import cartridge
 from tests.support import IDEA, StudioCase
 
 
@@ -43,13 +44,13 @@ class AccessTests(StudioCase):
         ).raise_for_status()
         trace = self.get("games/" + g["game"])["revision"]["docs"]["context_snapshot"]
         self.assertEqual(trace["preferences"]["values"]["audience"], "通勤玩家")
-        from studio import context as scoped
+        from studio.application.memory import projection
 
         self.assertNotIn(
-            "visual_style", scoped.memory_for("Analyst", trace)["preferences"]
+            "visual_style", projection.memory_for("Analyst", trace)["preferences"]
         )
         self.assertEqual(
-            scoped.memory_for("ArtDesigner", trace)["preferences"]["visual_style"],
+            projection.memory_for("ArtDesigner", trace)["preferences"]["visual_style"],
             "剪纸海港",
         )
         self.assertEqual(

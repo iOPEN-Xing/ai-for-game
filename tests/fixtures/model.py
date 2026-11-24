@@ -1,6 +1,7 @@
 """Deterministic role outputs for offline workflow tests."""
 
-from studio import agents, cartridge
+from studio.application.tools import cartridge
+from studio.domain import agent_outputs as outputs
 
 
 async def scripted(role, schema, data):
@@ -91,7 +92,7 @@ async def scripted(role, schema, data):
                 examined=[i["id"] for i in data["evidence"]["dead_ends"]],
                 definition_check="核对正式对局分母",
             )
-    elif role == "Producer" and schema is agents.Impact:
+    elif role == "Producer" and schema is outputs.Impact:
         out = {
             "reason": "只新增一个实体",
             "affected": ["gdd", "art", "game_code"],
@@ -104,9 +105,9 @@ async def scripted(role, schema, data):
             "focus": ["首次触摸"],
             "next_role": data["next_required_role"],
         }
-    elif schema is agents.SearchBrief:
+    elif schema is outputs.SearchBrief:
         out = {"game_name": "信标", "queries": ["beacon game", "lighthouse puzzle"]}
-    elif schema is agents.VisualAnalysis:
+    elif schema is outputs.VisualAnalysis:
         out = {
             "observations": {
                 r["id"]: "图中有清晰的点击目标" for r in data["selected_references"]

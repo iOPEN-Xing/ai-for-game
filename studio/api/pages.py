@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from markdown_it import MarkdownIt
 
-from studio import cartridge
+from studio.infra.bundles import public_payload
 from studio.infra.repositories import games as games_db
 from studio.infra.repositories import revisions as revisions_db
 from studio.infra.store import db
@@ -57,7 +57,7 @@ def public_cartridge(bundle: str, request: Request):
     if "*" in requested or etag in requested:
         return Response(status_code=304, headers=headers)
     return Response(
-        cartridge.public_payload(bundle),
+        public_payload(bundle),
         media_type="application/json",
         headers=headers,
     )

@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from studio.api.auth import admin
+from studio.application.usecases import library
 from studio.domain.commands import KnowledgeVerdict
-from studio.services import library
 
 router = APIRouter(dependencies=[Depends(admin)])
 

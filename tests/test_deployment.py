@@ -13,7 +13,8 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import app as server
-from studio import cartridge, image_service, worker
+from studio.application.harness import worker
+from studio.application.tools import cartridge, image_service
 from studio.domain import limits
 from studio.infra.backup import export_backup, restore_backup
 from studio.infra.store import db, enqueue, init, need

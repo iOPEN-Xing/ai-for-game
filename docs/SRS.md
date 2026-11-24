@@ -68,7 +68,7 @@ v1 上线范围由 [ADR-004](ADR/ADR-004-private-studio.md) 确定。表中 Work
 | 公共链路 / 特权链路 | 公共：开局/事件/反馈/跳转/已发布包；特权：建游戏/改方案/看报表/批提案/触发分析 | §9 分组，公共链路免登+强限流，特权链路鉴权+审计 |
 | **冻结证据**（img-55 门禁①） | 分析前一次性快照：观测窗 + 版本 + 构建哈希 + 分母 + 源码 + 关卡参数行 + 反馈 + 知识引用；V1 样本禁配 V2 源码（R-EVIDENCE） | `studio/operations.py:freeze` |
 | **可证伪下注**（img-56） | 提案必须写预测区间、引用知识 ID、证伪条件；到期对照「实际交付了什么」再取数 | `studio/deliberation.py:Proposal`、`studio/operations.py:settle` |
-| **四层记忆**（img-58） | 核心规则（常驻注入）/ 知识（按游戏+玩法召回）/ 历史记忆（事件唯一可引用证据）/ 会话记忆（断点续跑） | `studio/context.py`、`studio/skillbook.py` |
+| **四层记忆**（img-58） | 核心规则（常驻注入）/ 知识（按游戏+玩法召回）/ 历史记忆（事件唯一可引用证据）/ 会话记忆（断点续跑） | `studio/application/memory/`、`studio/application/agents/skillbook.py` |
 
 北极星指标（5 选 1，不变）：`win_rate` / `rounds_per_player` / `seconds_per_player` / `action_rate` / `d1_rate`。`d1_rate` 为成熟 D1 队列口径（`operations.py` 留存队列），其余四项见 `settings.py:METRICS`。
 

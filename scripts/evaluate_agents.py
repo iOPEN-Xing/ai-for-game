@@ -74,13 +74,14 @@ def replay(cases):
 
 
 async def live(cases):
-    from studio import agents, skillbook
+    from studio.application.agents import gateway, skillbook
+    from studio.domain import agent_outputs as outputs
     from studio.domain.deliberation import first_schema
     from studio.infra.store import init
-    from studio.settings import load_environment
+    from studio.settings import load_environment, provider_names
 
     load_environment()
-    if not agents.provider_names():
+    if not provider_names():
         raise RuntimeError("在线验收需要配置 GLM 服务凭据")
     with tempfile.TemporaryDirectory(prefix="studio-evaluation-") as folder:
         # This CLI owns its process and never opens the production DB.
@@ -89,9 +90,9 @@ async def live(cases):
         run = await skillbook.pin("evaluation:" + cases["version"], "production")
         records = []
         for case in cases["live_impact"]:
-            output, _ = await agents.consult(
+            output, _ = await gateway.consult(
                 "Producer",
-                agents.Impact,
+                outputs.Impact,
                 {
                     "_run_binding": run,
                     "_node": case["id"],
@@ -110,7 +111,7 @@ async def live(cases):
             task, role, evidence = case["task"], case["role"], case["evidence"]
             binding = await skillbook.pin("evaluation:" + task, task)
             manifests[task] = binding["manifest"]
-            output, _ = await agents.consult(
+            output, _ = await gateway.consult(
                 role,
                 first_schema(task, role),
                 {

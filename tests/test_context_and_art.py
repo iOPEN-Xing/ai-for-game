@@ -16,8 +16,12 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 import app
-from studio import agents, context, research, skillbook
-from studio import image_service as images
+from studio.application.agents import gateway, registry, skillbook
+from studio.application.memory import snapshots
+from studio.application.tools import image_service as images
+from studio.application.tools import research
+from studio.domain import agent_outputs as outputs
+from studio.domain.fingerprints import digest
 from studio.store import db, init
 
 
@@ -41,11 +45,35 @@ class ContextAndArtTests(unittest.TestCase):
         self.addCleanup(env.stop)
         init()
 
+    def test_role_reassignment_only_changes_new_runs(self):
+        async def check():
+            await skillbook.pin("v1-run", "iteration")
+            with db(True) as con:
+                # A v1 database archives skill bodies but has no role-assignment row.
+                con.execute(
+                    "DELETE FROM agent_run_skill_routes WHERE run=?", ("v1-run",)
+                )
+
+            await skillbook.pin("running", "iteration")
+            analyst = registry.Role("operations", (registry.DESIGN,))
+            with patch.dict(registry.ROLES, {"Analyst": analyst}):
+                for run_id in ("v1-run", "running", "new"):
+                    with self.subTest(run=run_id):
+                        run = await skillbook.pin(run_id, "iteration")
+                        result = await skillbook.read("Analyst", "iteration", run)
+                        base = registry.DESIGN if run_id == "new" else registry.OPS
+                        self.assertEqual(
+                            [s["name"] for s in result],
+                            [base, registry.TASK_SKILLS["iteration"]],
+                        )
+
+        asyncio.run(check())
+
     def test_pinned_skill_revision_model_context_and_prompt_are_recoverable(self):
         async def check():
             run = await skillbook.pin("proposal:resume")
             with db() as con:
-                memory = context.capture(con, "project-1")
+                memory = snapshots.capture(con, "project-1")
             memory["preferences"] = {
                 "version": 3,
                 "values": {"audience": "通勤", "visual_style": "插画"},
@@ -59,7 +87,7 @@ class ContextAndArtTests(unittest.TestCase):
                 async def reply(self, message):
                     sent.append(json.loads(message.get_text_content()))
                     return SimpleNamespace(
-                        finished_reason=agents.ReplyFinishedReason.COMPLETED,
+                        finished_reason=gateway.ReplyFinishedReason.COMPLETED,
                         get_text_content=lambda: json.dumps(
                             {
                                 "evidence": "首关正式样本",
@@ -76,12 +104,12 @@ class ContextAndArtTests(unittest.TestCase):
                     side_effect=AssertionError("不应读当前文件"),
                 ),
                 patch.dict(os.environ, {"ZAI_MODEL": "new-default"}),
-                patch.object(agents, "Agent", RecordedAgent),
+                patch.object(gateway, "Agent", RecordedAgent),
             ):
                 resumed = await skillbook.pin("proposal:resume")
-                result, _ = await agents.consult(
+                result, _ = await gateway.consult(
                     "Analyst",
-                    agents.Opinion,
+                    outputs.Opinion,
                     {
                         "task": "iteration",
                         "phase": "independent",
@@ -103,14 +131,12 @@ class ContextAndArtTests(unittest.TestCase):
             )
             self.assertEqual(audit["preference_version"], 3)
             with db() as con:
-                archived = context.inspect_input(
+                archived = snapshots.inspect_input(
                     con, run["id"], "Analyst", audit["context_sha256"]
                 )
             self.assertEqual(archived["prompt"], sent[0])
             self.assertEqual(archived["input"], sent[1])
-            self.assertEqual(
-                skillbook.digest(archived["prompt"]), audit["prompt_revision"]
-            )
+            self.assertEqual(digest(archived["prompt"]), audit["prompt_revision"])
             client = TestClient(
                 app.app, base_url="http://localhost", client=("127.0.0.1", 50000)
             )

@@ -9,6 +9,7 @@ from ipaddress import ip_address
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 
+from studio.application.memory.preferences import resolve_editor
 from studio.domain.commands import Login
 from studio.infra.repositories import sessions
 from studio.infra.store import Problem, db, now
@@ -79,7 +80,15 @@ def logout(request: Request, digest: str | None = Depends(admin)):
 
 
 def editor_identity(request: Request, response: Response) -> str:
-    from studio import context
-
     with db(True) as con:
-        return context.editor(con, request, response)
+        subject, token = resolve_editor(con, request.cookies.get("loop_editor", ""))
+    if token is not None:
+        response.set_cookie(
+            "loop_editor",
+            token,
+            max_age=31536000,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+        )
+    return subject

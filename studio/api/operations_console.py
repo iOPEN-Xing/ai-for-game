@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 
 from studio.api.auth import admin
+from studio.application.usecases.operations import console as operations_console
 from studio.domain.commands import Analysis, ExternalChange, Supplement, Verdict
-from studio.services import operations_console
 
 router = APIRouter(dependencies=[Depends(admin)])
 

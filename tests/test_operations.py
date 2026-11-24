@@ -2,8 +2,10 @@ import asyncio
 import datetime as dt
 from unittest.mock import patch
 
-from studio import agents, operations, worker
-from studio.services import batches, experiments
+from studio import operations
+from studio.application.agents import gateway
+from studio.application.harness import worker
+from studio.application.usecases.operations import batches, experiments
 from studio.settings import ZONE
 from studio.store import db, init, need, one
 from tests.fixtures.model import scripted
@@ -43,7 +45,7 @@ class OperationsTests(StudioCase):
                 value["reason"] = "尚未核实受影响人群的分母。"
             return value, provider
 
-        with patch.object(agents, "consult", side_effect=disputed):
+        with patch.object(gateway, "consult", side_effect=disputed):
             pid = self.post(
                 "operations/analyze", {"game": self.game, "kind": "new_game"}
             )["id"]
@@ -177,7 +179,7 @@ class OperationsTests(StudioCase):
                 raise RuntimeError("interrupted")
             return await scripted(role, schema, data)
 
-        with patch.object(agents, "consult", side_effect=interrupted):
+        with patch.object(gateway, "consult", side_effect=interrupted):
             asyncio.run(worker.run_job(worker.claim()))
         partial = self.get("games/" + self.game)["revision"]
         self.assertIn("gdd", partial["docs"])
@@ -227,7 +229,7 @@ class OperationsTests(StudioCase):
                 value["supported"] = False
             return value, provider
 
-        with patch.object(agents, "consult", side_effect=with_blocker):
+        with patch.object(gateway, "consult", side_effect=with_blocker):
             pid = self.post("operations/analyze", {"game": self.game})["id"]
             self.work()
         p = self.get("proposals/" + pid)

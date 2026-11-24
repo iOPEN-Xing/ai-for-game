@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 
 from studio.api.auth import admin
+from studio.application.usecases.games import blueprints as blueprint_service
 from studio.domain.commands import BlueprintEdit
-from studio.services import blueprints as blueprint_service
 
 router = APIRouter(dependencies=[Depends(admin)])
 

@@ -1,0 +1,15 @@
+{
+  "Producer": {"default": ["design-gameplay", "build-playable-levels"]},
+  "GameplayResearch": {"default": ["design-gameplay"]},
+  "Planner": {"default": ["design-gameplay"]},
+  "ArtDesigner": {"default": ["design-gameplay"]},
+  "LevelDesigner": {"default": ["design-gameplay", "build-playable-levels"]},
+  "GameCoder": {"default": ["build-playable-levels", "design-gameplay"]},
+  "LevelCoder": {"default": ["build-playable-levels"]},
+  "QualityReviewer": {"default": ["build-playable-levels", "design-gameplay"]},
+  "Analyst": {"default": ["review-game-experiments"], "iteration": ["review-game-experiments", "iterate-live-game"], "new_game": ["review-game-experiments", "evaluate-new-game"]},
+  "Engineer": {"default": ["build-playable-levels", "review-game-experiments"], "iteration": ["build-playable-levels", "review-game-experiments", "iterate-live-game"], "new_game": ["build-playable-levels", "review-game-experiments", "evaluate-new-game"]},
+  "GameDesigner": {"default": ["design-gameplay", "review-game-experiments"], "iteration": ["design-gameplay", "review-game-experiments", "iterate-live-game"], "new_game": ["design-gameplay", "review-game-experiments", "evaluate-new-game"]},
+  "Reviewer": {"default": ["review-game-experiments"], "iteration": ["review-game-experiments", "iterate-live-game"], "new_game": ["review-game-experiments", "evaluate-new-game"]},
+  "Moderator": {"default": ["review-game-experiments"], "iteration": ["review-game-experiments", "iterate-live-game"], "new_game": ["review-game-experiments", "evaluate-new-game"]}
+}

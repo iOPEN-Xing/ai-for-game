@@ -2,8 +2,10 @@ import hashlib
 import json
 from unittest.mock import patch
 
-from studio import agents, cartridge, operations
-from studio.services import experiments
+from studio import operations
+from studio.application.agents import gateway
+from studio.application.tools import cartridge
+from studio.application.usecases.operations import experiments
 from studio.store import db, need
 from tests.fixtures.model import scripted
 from tests.support import StudioCase
@@ -125,11 +127,11 @@ class ExperimentsTests(StudioCase):
         self.assertEqual(self.get("games/" + self.game)["game"]["live"], e["treatment"])
         k = self.get("memory")["entries"][0]
         self.assertEqual(k["status"], "pending")
-        from studio import context
+        from studio.application.memory import projection, snapshots
+        from studio.application.usecases.operations import decisions
         from studio.infra.repositories import evidence
-        from studio.services import review
 
-        with patch.object(review, "now", return_value=e["due"] + 10):
+        with patch.object(decisions, "now", return_value=e["due"] + 10):
             self.post(
                 "knowledge/" + k["id"] + "/review",
                 {"accept": True, "note": "限当前版本和样本"},
@@ -140,9 +142,9 @@ class ExperimentsTests(StudioCase):
             (learned,) = evidence.comparable_knowledge(con, e["due"] + 11)
             self.assertEqual(learned["id"], k["id"])
             self.assertIn(settled["result"]["tested_change"], learned["text"])
-            future = context.capture(con, self.game, e["due"] + 11)
+            future = snapshots.capture(con, self.game, e["due"] + 11)
             self.assertEqual(
-                context.memory_for("Analyst", future)["approved_knowledge"][0][
+                projection.memory_for("Analyst", future)["approved_knowledge"][0][
                     "review_note"
                 ],
                 "限当前版本和样本",
@@ -204,7 +206,7 @@ class ExperimentsTests(StudioCase):
                 )
             return value, provider
 
-        with patch.object(agents, "consult", side_effect=parameter_change):
+        with patch.object(gateway, "consult", side_effect=parameter_change):
             pid = self.post("operations/analyze", {"game": self.game})["id"]
             self.work()
             self.rev = self.post("proposals/" + pid + "/review", {"accept": True})[

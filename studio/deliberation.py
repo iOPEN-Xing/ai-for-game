@@ -1,5 +1,6 @@
 """Public deliberation protocol and orchestration entry point."""
 
+from studio.application.harness.operations.debate import conduct
 from studio.domain.deliberation import (
     PROTOCOL,
     Answer,
@@ -35,7 +36,6 @@ from studio.domain.deliberation import (
     validate_decision,
     validate_refs,
 )
-from studio.services.debate import conduct
 
 __all__ = [
     "PROTOCOL",

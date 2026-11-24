@@ -8,7 +8,6 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from studio import worker
 from studio.api import (
     auth,
     blueprints,
@@ -20,6 +19,7 @@ from studio.api import (
     operations_console,
     pages,
 )
+from studio.application.harness import worker
 from studio.infra.store import init
 from studio.settings import ROOT, WEB, deployed, load_environment, validate_runtime
 

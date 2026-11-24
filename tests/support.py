@@ -10,7 +10,9 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import app as server
-from studio import agents, cartridge, worker
+from studio.application.agents import gateway
+from studio.application.harness import worker
+from studio.application.tools import cartridge
 from studio.store import db, init, need
 from tests.fixtures.model import scripted
 
@@ -38,7 +40,7 @@ class StudioCase(unittest.TestCase):
         )
         env.start()
         self.addCleanup(env.stop)
-        model = patch.object(agents, "consult", side_effect=scripted)
+        model = patch.object(gateway, "consult", side_effect=scripted)
         model.start()
         self.addCleanup(model.stop)
         self.client = TestClient(

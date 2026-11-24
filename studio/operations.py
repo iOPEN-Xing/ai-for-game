@@ -1,5 +1,24 @@
 """Public operations entry points for the studio and existing integrations."""
 
+from studio.application.harness.operations.analysis import analyze
+from studio.application.usecases.operations.batches import (
+    audit_batches,
+    daily_priorities,
+    run_batch,
+)
+from studio.application.usecases.operations.decisions import (
+    review_knowledge,
+    review_proposal,
+)
+from studio.application.usecases.operations.evidence import freeze, frozen_evidence
+from studio.application.usecases.operations.experiments import (
+    decide_experiment,
+    delivery_diff,
+    distribution,
+    progress_scope,
+    release,
+    settle,
+)
 from studio.domain import deliberation
 from studio.domain.metrics import (
     METRIC_HELP,
@@ -8,17 +27,6 @@ from studio.domain.metrics import (
     sample_unit,
 )
 from studio.infra.reporting import exp_stats, report, retention
-from studio.services.batches import audit_batches, daily_priorities, run_batch
-from studio.services.evidence import freeze, frozen_evidence
-from studio.services.experiments import (
-    decide_experiment,
-    delivery_diff,
-    distribution,
-    progress_scope,
-    release,
-    settle,
-)
-from studio.services.review import analyze, review_knowledge, review_proposal
 
 MANUAL = "先读冻结的三级报表、版本配置与原始历史，再独立分析、互评、形成一条可执行假设。没有样本或有效版本则停止。"
 

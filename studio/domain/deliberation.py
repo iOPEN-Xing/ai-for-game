@@ -15,6 +15,8 @@ from studio.domain.agent_outputs import Bet, Detail, Opinion, Output, Short
 from studio.domain.evidence_sources import visible_sources
 
 PROTOCOL = 3
+CONSTRAINT_EXPERTS = ("Analyst", "Reviewer", "Engineer")
+EXPERTS = (*CONSTRAINT_EXPERTS, "GameDesigner")
 
 
 class CitedOpinion(Opinion):
@@ -257,7 +259,7 @@ def validate_decision(kind, doc, evidence):
 
 def issue_ids(doc):
     issues = {f"q{i}": issue for i, issue in enumerate(doc["challenge"]["issues"], 1)}
-    for role in ("Analyst", "Reviewer", "Engineer", "GameDesigner"):
+    for role in EXPERTS:
         if blocker := doc[role].get("blocker"):
             issues["b-" + role] = blocker
     return issues
@@ -267,7 +269,7 @@ def reviewable(kind, doc, evidence):
     if doc.get("protocol") != PROTOCOL:
         return False
     try:
-        for role in ("Analyst", "Engineer", "Reviewer", "GameDesigner"):
+        for role in EXPERTS:
             (first_schema(kind, role)).model_validate(doc[role])
             allowed = set(visible_sources(role, evidence))
             validate_refs(doc[role], allowed)

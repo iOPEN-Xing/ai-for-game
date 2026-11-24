@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response, StreamingResponse
 
 from studio.api.auth import admin, editor_identity
+from studio.application.usecases.games import catalog, progress
 from studio.domain.commands import Campaign, Decision, Idea, Note, PreferenceUpdate
 from studio.infra.store import Problem
-from studio.services import catalog, progress
 
 router = APIRouter(dependencies=[Depends(admin)])
 

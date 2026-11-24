@@ -11,11 +11,16 @@ import httpx
 from agentscope.event import TextBlockDeltaEvent
 from agentscope.message import AssistantMsg
 
-from studio import agents, context, research, settings, skillbook
-from studio.domain.context_policy import bounded
-from studio.infra import image_response, monitoring, research_stream
+from studio import settings
+from studio.application.agents import gateway, skillbook
+from studio.application.agents import streaming as research_stream
+from studio.application.memory import projection, snapshots
+from studio.application.memory.projection import bounded
+from studio.application.tools import research
+from studio.application.usecases.games import progress
+from studio.domain import agent_outputs as outputs
+from studio.infra import image_response, monitoring
 from studio.infra.store import db, init
-from studio.services import progress
 from tests.support import IDEA, StudioCase
 
 
@@ -212,9 +217,9 @@ class StreamingEndpointTests(StudioCase):
         from types import SimpleNamespace
 
         from studio.api import catalog
+        from studio.application.usecases.games import revisions as revision_service
         from studio.infra.repositories import revisions, sessions
         from studio.infra.store import now
-        from studio.services import revisions as revision_service
 
         item = self.post("games", IDEA, 201)
         self.game = item["game"]
@@ -259,7 +264,7 @@ class StreamingEndpointTests(StudioCase):
 
     def test_v1_pinned_impact_schema_resumes_with_the_same_prompt(self):
         binding = asyncio.run(skillbook.pin("old-impact", "production"))
-        (old_schema,) = agents.Impact.compatible_schema_hashes
+        (old_schema,) = outputs.Impact.compatible_schema_hashes
         with db(True) as con:
             con.execute(
                 "INSERT INTO agent_prompts VALUES(?,?,?,?,?)",
@@ -267,12 +272,12 @@ class StreamingEndpointTests(StudioCase):
             )
         self.assertEqual(
             skillbook.bind_prompt(
-                binding["id"], "Producer", "Impact", agents.Impact, "新约束"
+                binding["id"], "Producer", "Impact", outputs.Impact, "新约束"
             ),
             "旧版约束",
         )
         self.assertIsNone(
-            agents.Impact.model_validate(
+            outputs.Impact.model_validate(
                 {
                     "reason": "修改声音",
                     "affected": ["art"],
@@ -318,7 +323,7 @@ class ModelObservabilityTests(unittest.IsolatedAsyncioTestCase):
                 return AssistantMsg(
                     name="Producer",
                     content=next(replies),
-                    finished_reason=agents.ReplyFinishedReason.COMPLETED,
+                    finished_reason=gateway.ReplyFinishedReason.COMPLETED,
                     usage={"input_tokens": 18, "output_tokens": 7},
                 )
 
@@ -329,13 +334,13 @@ class ModelObservabilityTests(unittest.IsolatedAsyncioTestCase):
                 {"STUDIO_DATA_DIR": folder, "ZAI_1_TOKEN": "fixture"},
                 clear=True,
             ),
-            patch.object(agents, "Agent", Agent),
+            patch.object(gateway, "Agent", Agent),
         ):
             init()
             binding = await skillbook.pin("test-run", "production")
-            value, _ = await agents.consult(
+            value, _ = await gateway.consult(
                 "Producer",
-                agents.Route,
+                outputs.Route,
                 {
                     "_run_binding": binding,
                     "_node": "route",
@@ -353,7 +358,7 @@ class ModelObservabilityTests(unittest.IsolatedAsyncioTestCase):
                     "studio_model_input_tokens_total" + labels + " 18\n", report
                 )
             with db() as con:
-                saved = context.inspect_input(
+                saved = snapshots.inspect_input(
                     con, binding["id"], "route", meta["context_sha256"]
                 )
                 self.assertEqual(saved["prompt_sha256"], meta["prompt_revision"])
@@ -366,15 +371,15 @@ class ModelObservabilityTests(unittest.IsolatedAsyncioTestCase):
             from studio.infra.store import Problem
 
             with db() as con, self.assertRaisesRegex(Problem, "提示"):
-                context.inspect_input(
+                snapshots.inspect_input(
                     con, binding["id"], "route", meta["context_sha256"]
                 )
 
 
 class KnowledgeReviewTests(StudioCase):
     def test_cutoff_and_atomic_supersession(self):
+        from studio.application.usecases.operations import decisions
         from studio.infra.repositories import evidence
-        from studio.services import review
 
         game = self.post("games", IDEA, 201)["game"]
         other = self.post("games", {**IDEA, "title": "另一个项目"}, 201)["game"]
@@ -396,10 +401,10 @@ class KnowledgeReviewTests(StudioCase):
                     None,
                     20,
                 )
-        with patch.object(review, "now", return_value=100):
+        with patch.object(decisions, "now", return_value=100):
             self.post("knowledge/old/review", {"accept": True, "note": "适用首关"})
             self.post("knowledge/other/review", {"accept": True})
-        with patch.object(review, "now", return_value=200):
+        with patch.object(decisions, "now", return_value=200):
             self.post(
                 "knowledge/new/review",
                 {"accept": True, "supersede": ["old", "other"]},
@@ -428,11 +433,11 @@ class KnowledgeReviewTests(StudioCase):
                 (None, ["new"]),
             ]
             for cutoff, ids in expected:
-                captured = context.capture(con, game, cutoff)
+                captured = snapshots.capture(con, game, cutoff)
                 self.assertEqual(
                     [
                         k["id"]
-                        for k in context.memory_for("Analyst", captured)[
+                        for k in projection.memory_for("Analyst", captured)[
                             "approved_knowledge"
                         ]
                     ],
@@ -474,7 +479,9 @@ class KnowledgeReviewTests(StudioCase):
         init()
         init()
         with db() as con:
-            self.assertEqual(context.capture(con, "old-game", now + 1)["knowledge"], [])
-            (item,) = context.capture(con, "old-game")["knowledge"]
+            self.assertEqual(
+                snapshots.capture(con, "old-game", now + 1)["knowledge"], []
+            )
+            (item,) = snapshots.capture(con, "old-game")["knowledge"]
             self.assertGreater(item["admitted"], now)
             self.assertIn("原审核时间未记录", item["review_note"])

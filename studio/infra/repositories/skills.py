@@ -14,18 +14,28 @@ def instruction(con, name, revision):
 
 
 def binding(con, run_id):
-    return one(con, "SELECT model,manifest FROM agent_runs WHERE id=?", run_id)
+    return one(
+        con,
+        """SELECT a.model,a.manifest,r.routes FROM agent_runs a
+           LEFT JOIN agent_run_skill_routes r ON r.run=a.id WHERE a.id=?""",
+        run_id,
+    )
 
 
-def pin(con, run_id, model, manifest, skills, at):
+def pin(con, run_id, model, manifest, routes, skills, at):
     con.executemany(
         "INSERT OR IGNORE INTO skill_revisions VALUES(:name,:revision,:description,:body)",
         skills,
     )
-    con.execute(
+    created = con.execute(
         "INSERT OR IGNORE INTO agent_runs VALUES(?,?,?,?)",
         (run_id, model, manifest, at),
     )
+    if created.rowcount:
+        con.execute(
+            "INSERT INTO agent_run_skill_routes(run,routes) VALUES(?,?)",
+            (run_id, routes),
+        )
     return binding(con, run_id)
 
 

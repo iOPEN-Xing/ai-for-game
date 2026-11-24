@@ -4,7 +4,10 @@ import asyncio
 import json
 from unittest.mock import patch
 
-from studio import agents, cartridge, context, worker
+from studio.application.agents import gateway
+from studio.application.harness import worker
+from studio.application.memory import projection
+from studio.application.tools import cartridge
 from studio.infra.store import db, need
 from tests.fixtures.model import scripted
 from tests.support import StudioCase
@@ -30,7 +33,7 @@ class ReleaseIntegrityTests(StudioCase):
                     candidate["candidates"][0]["evidence"] = "game.js"
             return candidate, provider
 
-        with patch.object(agents, "consult", side_effect=miscite):
+        with patch.object(gateway, "consult", side_effect=miscite):
             pid = self.post(
                 "operations/analyze", {"kind": "new_game", "game": self.game}
             )["id"]
@@ -64,7 +67,7 @@ class ReleaseIntegrityTests(StudioCase):
             "supplement",
             "unreleased_plan",
         ]
-        view = context.evidence_for("GameDesigner", old)
+        view = projection.evidence_for("GameDesigner", old)
         self.assertNotIn("PRIVATE-PLAYER-TEXT", json.dumps(view))
         self.assertNotIn("old-rating", view["sources"])
         self.assertNotIn("unreleased_plan", view)
@@ -117,7 +120,7 @@ function parameters(index, total, seed) {
                 )
             return value, provider
 
-        with patch.object(agents, "consult", side_effect=wider_maze):
+        with patch.object(gateway, "consult", side_effect=wider_maze):
             pid = self.post("operations/analyze", {"game": self.game})["id"]
             self.work()
             self.rev = self.post(f"proposals/{pid}/review", {"accept": True})[
