@@ -105,6 +105,11 @@ try {
       document.querySelector('.act').getBoundingClientRect().bottom <= innerHeight);
     assert.ok(fits, 'The game and start button must fit the viewport');
     if (path !== '/sample?game=harbor') {
+      await page.setViewportSize({width:844,height:390});
+      const rotated = await page.evaluate(() => ['.act','.game-frame'].every(selector =>
+        document.querySelector(selector).getBoundingClientRect().bottom <= innerHeight));
+      assert.ok(rotated, 'Rotating a phone must leave both the board and start button on screen');
+      await page.setViewportSize({width,height});
       await playCampaign(page, playerSite, path === '/sample?game=post');
       await context.close();
       continue;
