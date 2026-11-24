@@ -2,7 +2,7 @@
   "seed": 731037352,
   "version": 3,
   "authorship": "GLM-5.4 玩法初稿，人工编排关卡、校正绘图接口与交互布局。",
-  "illustrations": {"harbor-light": "tidal-beacon.png"},
+  "illustrations": {"harbor-light": {"file":"studio/web/tidal-beacon.png","model":"gpt-image-2"}},
   "gdd": {
     "title": "潮汐信标",
     "core_loop": "阅读灯阵，预判一个开关的连锁影响，在有限步数内点亮整座港湾。",

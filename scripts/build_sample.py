@@ -26,14 +26,15 @@ def build(slug):
     with tempfile.TemporaryDirectory(prefix="studio-playable-sample-") as folder:
         os.environ["STUDIO_DATA_DIR"] = folder
         try:
-            for entity, name in design.get("illustrations", {}).items():
-                image = (WEB / name).read_bytes()
+            # Preserve approved PNG bytes across platforms when building the public samples.
+            for entity, art in design.get("illustrations", {}).items():
+                image = (ROOT / art["file"]).read_bytes()
                 digest = hashlib.sha256(image).hexdigest()
                 art_files.folder().mkdir(exist_ok=True)
                 (art_files.folder() / (digest + ".png")).write_bytes(image)
                 docs["art"].setdefault("rendered", {})[entity] = {
                     "sha256": digest,
-                    "model": "gpt-image-2",
+                    **{k: art[k] for k in ("model", "provider") if k in art},
                 }
             bundle, proof = compile_bundle({"seed": design["seed"]}, docs)
             payload = player_data(bundle)

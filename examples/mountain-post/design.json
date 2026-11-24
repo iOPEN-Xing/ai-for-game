@@ -2,6 +2,7 @@
   "seed": 321,
   "version": 1,
   "authorship": "GLM-5.4 生成关卡、玩法程序并修复错投规则，人工整理横版场景、邮封和触屏布局。",
+  "illustrations": {"envelope": {"file":"examples/mountain-post/envelope.png","provider":"制作室图层渲染"}},
   "gdd": {
     "title": "山间邮局",
     "core_loop": "读邮封的站号和转寄牌，判断实际目的站，把信投进对应的投递口。",
